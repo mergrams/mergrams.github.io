@@ -1,0 +1,49 @@
+{
+  "contentdir": "content",
+  "layoutdir": "layouts",
+  "publishdir": "public",
+  "builddrafts": false,
+  "baseurl": "https://mergraming.github.io",
+  "canonifyurls": true,
+  "permalinks": {
+    "post": "::title/",
+    "fixed": ":title/"
+  },
+  "markup": {
+    "goldmark": {
+      "extensions": {
+        "typographer": true
+      },
+      "renderer": {
+        "unsafe": true
+      }
+    }
+  },
+  "pygmentsuseclasses": true,
+  "menu": {
+    "main": [
+      {
+        "identifier": "categories",
+        "name": "Categories",
+        "title": "Categories",
+        "url": "/categories/",
+        "weight": -110
+      }
+    ]
+  },
+  "params": {
+    "Title": "Mergraming",
+    "Tagline": "A programming blog",
+    "Description": "Mergram engineering blog",
+    "Author": "Mergram Authors",
+    "DateForm": "Jan 2 2006",
+    "mainSections": [
+      "post"
+    ],
+    "disableFonts": true
+  },
+  "pagination": {
+    "pagerSize": 1,
+    "path": "page"
+  }
+}
