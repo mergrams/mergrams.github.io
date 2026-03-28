@@ -9,6 +9,9 @@
         <h1 class="post-title"><a href="{{ .Permalink }}">{{ .Title }}</a></h1>
         <span class="post-date">{{ .Site.Params.DateForm | default "Jan 2, 2006" | .Date.Format }}</span>
         {{ .Content }}
+        {{ if .Store.Get "hasMermaid" }}
+          {{ $.Store.Set "hasMermaid" true }}
+        {{ end }}
     </div>
   {{ end }}
 </div>
