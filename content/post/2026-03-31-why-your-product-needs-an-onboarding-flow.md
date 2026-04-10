@@ -200,18 +200,6 @@ This is what turns a passive tour ("click here, then click there") into an activ
 
 Without demo assets, the tour would be saying "upload a PDF" to a user who doesn't have a PDF handy. They'd skip the tour, and you've lost your one chance to make a first impression.
 
-## What We Got Wrong (Or Haven't Done Yet)
-
-The tour works, but it's not perfect. Here's what we'd change:
-
-**No re-onboarding mechanism.** Once the tour completes, there's no way to restart it from the UI. The `restart()` method exists on the hook, but nothing in the settings or help menu calls it. If a user skips the tour, they can't get it back.
-
-**No contextual help after the tour.** The tour runs once, then disappears. There are no tooltips, no help panels, no "what's this?" links on individual features. The user either remembers what the tour taught them or figures it out on their own.
-
-**Steps are static, not context-aware.** The tour always shows all five steps, even if the user has already uploaded a PDF before starting the tour. An ideal system would detect the editor's current state and skip steps the user has already completed.
-
-These are the kinds of gaps you discover after shipping. The tour solved the biggest problem — the blank-canvas moment — and the incremental improvements are on the roadmap.
-
 ## The Lesson
 
 Onboarding isn't about making your product feel polished. It's about **reducing the time between sign-up and the first moment of value**.
