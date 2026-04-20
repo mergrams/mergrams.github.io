@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en-us">
+
+  <head>
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+
+  <link rel="icon" type="image/svg+xml" href="https://mergrams.github.io/assets/favicon.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+
+  <title>
+    
+      Hello World &middot; Mergrams
+    
+  </title>
+
+  
+  <link rel="stylesheet" href="https://mergrams.github.io/css/poole.css">
+  <link rel="stylesheet" href="https://mergrams.github.io/css/syntax.css">
+  <link rel="stylesheet" href="https://mergrams.github.io/css/lanyon.css">
+
+  
+  <link rel="apple-touch-icon-precomposed" sizes="144x144" href="https://mergrams.github.io/assets/apple-touch-icon-144-precomposed.png">
+  <link rel="shortcut icon" href="https://mergrams.github.io/assets/favicon.ico">
+
+  
+  <link rel="alternate" type="application/rss+xml" title="RSS" href="https://mergrams.github.io/atom.xml">
+</head>
+
+
+  <body>
+
+    <input type="checkbox" class="sidebar-checkbox" id="sidebar-checkbox">
+
+
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-item">
+    <p>
+      Mergram engineering blog
+    </p>
+  </div>
+
+  <nav class="sidebar-nav">
+    <a class="sidebar-nav-item " href="https://mergrams.github.io/">Home</a>
+    <a class="sidebar-nav-item " href="https://mergrams.github.io/post">Posts</a><a class="sidebar-nav-item" href="https://mergrams.github.io/categories/" title="Categories">Categories</a>
+    <a class="sidebar-nav-item " href="https://mergrams.github.io/about/">About</a>
+      </nav>
+
+  <div class="sidebar-item">
+    <p>Looking for a simple PDF mail merge?</p>
+    <p><a href="https://mergram.com" target="_blank">Visit Mergram &rarr;</a></p>
+  </div>
+
+  <div class="sidebar-item">
+    <p>&copy; Mergram. All rights reserved.</p>
+  </div>
+</div>
+
+
+    
+    <div class="wrap">
+      <div class="masthead">
+        <div class="container">
+          <h3 class="masthead-title">
+            <a href="https://mergrams.github.io/" title="Home">Mergrams</a>
+            <small>A programming blog</small>
+          </h3>
+        </div>
+      </div>
+
+      <div class="container content">
+
+
+<div class="post">
+  <h1 class="post-title">Hello World</h1>
+  <span class="post-date">Mar 27 2026</span>
+  <p>Welcome to the Mergram engineering blog. This is where we write about the technical problems we run into while building Mergram — no fluff, just the interesting parts.</p>
+<h2 id="what-is-mergram">What is Mergram?</h2>
+<p>Mergram is a PDF mail merge tool. You upload a PDF template and an Excel spreadsheet, place data fields onto the document using a visual canvas editor, and generate personalized PDFs in bulk. It also supports sending those PDFs as email attachments via SMTP.</p>
+<p>The stack:</p>
+<ul>
+<li><strong>Frontend</strong> — React 18, TypeScript, Vite, Tailwind CSS, Fabric.js for the canvas editor</li>
+<li><strong>Backend</strong> — Node.js, Express, Drizzle ORM, PostgreSQL</li>
+<li><strong>Worker</strong> — Background job system with <code>SELECT FOR UPDATE SKIP LOCKED</code> for concurrency-safe PDF generation</li>
+<li><strong>Infrastructure</strong> — Turborepo monorepo, Docker, S3-compatible storage, LemonSqueezy for billing</li>
+</ul>
+<h2 id="why-a-blog">Why a blog?</h2>
+<p>Building a product that touches PDF rendering, canvas manipulation, background job processing, credit-based billing, and browser-to-server code sharing means we run into a lot of problems that aren&rsquo;t covered by a typical &ldquo;build a CRUD app&rdquo; tutorial.</p>
+<p>Some examples of what we&rsquo;ll write about here:</p>
+<ul>
+<li><strong>Render driver abstraction</strong> — We share PDF rendering logic between the browser (for live previews) and the server (for bulk generation). The browser uses Canvas APIs and data URLs; the server uses Buffers and native libraries. Same interface, two implementations. This pattern has tradeoffs worth discussing.</li>
+<li><strong>Worker reliability</strong> — Background jobs that process thousands of PDFs need pause/resume, retry logic, stale lock recovery, and progress streaming. We learned a lot getting this right.</li>
+<li><strong>Credit system correctness</strong> — Atomic deductions with SQL-level guards, idempotent allocations, and the edge cases around enterprise plans with &ldquo;unlimited&rdquo; credits.</li>
+<li><strong>Canvas editor</strong> — Layering a Fabric.js interactive canvas on top of react-pdf&rsquo;s PDF viewer, handling coordinate systems, zoom, field serialization, and cross-browser quirks.</li>
+</ul>
+<h2 id="what-to-expect">What to expect</h2>
+<p>Posts will be technical and specific. We won&rsquo;t rehash documentation — we&rsquo;ll talk about the problems that made us reach for the documentation in the first place. If a post helps one person avoid the same rabbit hole we fell into, it&rsquo;s worth writing.</p>
+<p>Thanks for reading.</p>
+
+</div>
+
+      </div>
+      <footer class="container" style="padding-bottom: 2rem; margin-top: 1rem; font-size: 0.8rem; color: #9a9a9a; font-family: 'PT Serif', Georgia, 'Times New Roman', serif;">
+        <hr style="margin-bottom: 1rem; border: 0; border-top: 1px solid #eee;">
+        <p>Back to <a href="https://mergram.com" target="_blank" style="color: #313131; text-decoration: underline;">Mergram</a> &mdash; PDF Mail Merge, Made Simple.</p>
+      </footer>
+    </div>
+
+    <label for="sidebar-checkbox" class="sidebar-toggle"></label>
+
+    
+  </body>
+</html>
+

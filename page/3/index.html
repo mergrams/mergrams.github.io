@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en-us">
+
+  <head>
+	<meta name="generator" content="Hugo 0.159.1">
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+
+  <link rel="icon" type="image/svg+xml" href="https://mergrams.github.io/assets/favicon.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+
+  <title>
+    
+      Mergrams &middot; A programming blog
+    
+  </title>
+
+  
+  <link rel="stylesheet" href="https://mergrams.github.io/css/poole.css">
+  <link rel="stylesheet" href="https://mergrams.github.io/css/syntax.css">
+  <link rel="stylesheet" href="https://mergrams.github.io/css/lanyon.css">
+
+  
+  <link rel="apple-touch-icon-precomposed" sizes="144x144" href="https://mergrams.github.io/assets/apple-touch-icon-144-precomposed.png">
+  <link rel="shortcut icon" href="https://mergrams.github.io/assets/favicon.ico">
+
+  
+  <link rel="alternate" type="application/rss+xml" title="RSS" href="https://mergrams.github.io/atom.xml">
+</head>
+
+
+  <body>
+
+    <input type="checkbox" class="sidebar-checkbox" id="sidebar-checkbox">
+
+
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-item">
+    <p>
+      Mergram engineering blog
+    </p>
+  </div>
+
+  <nav class="sidebar-nav">
+    <a class="sidebar-nav-item  active " href="https://mergrams.github.io/">Home</a>
+    <a class="sidebar-nav-item " href="https://mergrams.github.io/post">Posts</a><a class="sidebar-nav-item" href="https://mergrams.github.io/categories/" title="Categories">Categories</a>
+    <a class="sidebar-nav-item " href="https://mergrams.github.io/about/">About</a>
+      </nav>
+
+  <div class="sidebar-item">
+    <p>Looking for a simple PDF mail merge?</p>
+    <p><a href="https://mergram.com" target="_blank">Visit Mergram &rarr;</a></p>
+  </div>
+
+  <div class="sidebar-item">
+    <p>&copy; Mergram. All rights reserved.</p>
+  </div>
+</div>
+
+
+    
+    <div class="wrap">
+      <div class="masthead">
+        <div class="container">
+          <h3 class="masthead-title">
+            <a href="https://mergrams.github.io/" title="Home">Mergrams</a>
+            <small>A programming blog</small>
+          </h3>
+        </div>
+      </div>
+
+      <div class="container content">
+
+
+
+
+
+<div class="posts">
+  
+    <div class="post">
+        <h1 class="post-title"><a href="https://mergrams.github.io/chunking-a-react-spa-so-the-editor-doesnt-pay-for-the-landing-page/">Chunking a React SPA So the Editor Doesn&#39;t Pay for the Landing Page</a></h1>
+        <span class="post-date">Apr 10 2026</span>
+        <p>Mergram&rsquo;s editor pulls in <code>pdfjs-dist</code> for viewing PDFs, <code>pdf-lib</code> for generating them, <code>fabric</code> for the canvas overlay, and <code>xlsx</code> for spreadsheet parsing. The landing page needs none of these. But in a single-bundle SPA, every visitor downloads the entire PDF engine — even the ones who bounce off the pricing page.</p>
+<p>The fix is code splitting: load only what each route needs. But splitting introduces its own problem — what happens when a chunk fails to load?</p>
+<h2 id="the-cost-of-a-single-bundle">The Cost of a Single Bundle</h2>
+<p>The problem isn&rsquo;t just bandwidth. It&rsquo;s parse time. The browser has to download, parse, and compile the entire bundle before it can render <em>anything</em>. If the user only wants the landing page, they&rsquo;re waiting for <code>pdf-lib</code> to compile before they see a single pixel of the hero section.</p>
+<div class="mermaid">
+  graph TD
+    A[User visits /] --> B[Downloads full bundle]
+    B --> C[Parses pdfjs-dist]
+    C --> D[Parses pdf-lib]
+    D --> E[Parses fabric]
+    E --> F[Parses xlsx]
+    F --> G[Finally renders landing page]
+    
+    style C fill:#fee2e2
+    style D fill:#fee2e2
+    style E fill:#fee2e2
+    style F fill:#fee2e2
+</div>
+
+<p>Every red box is JavaScript the landing page never uses. The user paid for it in download time and CPU time, and it did nothing.</p>
+<h2 id="how-we-chunk-two-tier-lazy-loading">How We Chunk: Two-Tier Lazy Loading</h2>
+<p>We split the routes into two tiers based on layout and authentication boundary.</p>
+<p><strong>Tier 1: <code>App.tsx</code></strong> — the root level. Handles unauthenticated routes: landing pages, login, legal pages, and standalone tools. Each is a separate chunk.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-ts" data-lang="ts"><span class="line"><span class="cl"><span class="c1">// App.tsx — lazy-loaded route components (each becomes a separate chunk)
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1">// Landing / marketing pages
+</span></span></span><span class="line"><span class="cl"><span class="kr">const</span> <span class="nx">LandingPage</span> <span class="o">=</span> <span class="nx">lazy</span><span class="p">(()</span> <span class="o">=&gt;</span> <span class="kr">import</span><span class="p">(</span><span class="s2">&#34;./components/landing/LandingPage&#34;</span><span class="p">));</span>
+</span></span><span class="line"><span class="cl"><span class="kr">const</span> <span class="nx">ToolsLandingPage</span> <span class="o">=</span> <span class="nx">lazy</span><span class="p">(</span>
+</span></span><span class="line"><span class="cl">  <span class="p">()</span> <span class="o">=&gt;</span> <span class="kr">import</span><span class="p">(</span><span class="s2">&#34;./components/landing/ToolsLandingPage&#34;</span><span class="p">),</span>
+</span></span><span class="line"><span class="cl"><span class="p">);</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1">// Standalone tools (each pulls in pdf-lib / fabric / xlsx independently)
+</span></span></span><span class="line"><span class="cl"><span class="kr">const</span> <span class="nx">SimplePdfEditor</span> <span class="o">=</span> <span class="nx">lazy</span><span class="p">(</span>
+</span></span><span class="line"><span class="cl">  <span class="p">()</span> <span class="o">=&gt;</span> <span class="kr">import</span><span class="p">(</span><span class="s2">&#34;./components/tools/SimplePdfEditor&#34;</span><span class="p">),</span>
+</span></span><span class="line"><span class="cl"><span class="p">);</span>
+</span></span><span class="line"><span class="cl"><span class="kr">const</span> <span class="nx">PdfCompressor</span> <span class="o">=</span> <span class="nx">lazy</span><span class="p">(()</span> <span class="o">=&gt;</span> <span class="kr">import</span><span class="p">(</span><span class="s2">&#34;./components/tools/PdfCompressor&#34;</span><span class="p">));</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1">// Authenticated workspace (heaviest — editor, billing, jobs, etc.)
+</span></span></span><span class="line"><span class="cl"><span class="kr">const</span> <span class="nx">Main</span> <span class="o">=</span> <span class="nx">lazy</span><span class="p">(()</span> <span class="o">=&gt;</span> <span class="kr">import</span><span class="p">(</span><span class="s2">&#34;./components/Main&#34;</span><span class="p">));</span>
+</span></span></code></pre></div><p><strong>Tier 2: <code>Main.tsx</code></strong> — the authenticated workspace. Loaded only after login. Contains the editor, billing, jobs, templates, and everything else behind the sidebar. These are <em>nested</em> lazy imports inside the already-lazy-loaded <code>Main</code> chunk.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-ts" data-lang="ts"><span class="line"><span class="cl"><span class="c1">// Main.tsx — lazy-loaded workspace routes
+</span></span></span><span class="line"><span class="cl"><span class="kr">const</span> <span class="nx">BillingPage</span> <span class="o">=</span> <span class="nx">lazy</span><span class="p">(()</span> <span class="o">=&gt;</span> <span class="kr">import</span><span class="p">(</span><span class="s2">&#34;./billing/BillingPage&#34;</span><span class="p">));</span>
+</span></span><span class="line"><span class="cl"><span class="kr">const</span> <span class="nx">MailMerge</span> <span class="o">=</span> <span class="nx">lazy</span><span class="p">(()</span> <span class="o">=&gt;</span> <span class="kr">import</span><span class="p">(</span><span class="s2">&#34;./merge/MailMerge&#34;</span><span class="p">));</span>
+</span></span><span class="line"><span class="cl"><span class="kr">const</span> <span class="nx">JobDashboard</span> <span class="o">=</span> <span class="nx">lazy</span><span class="p">(()</span> <span class="o">=&gt;</span> <span class="kr">import</span><span class="p">(</span><span class="s2">&#34;./jobs/JobDashboard&#34;</span><span class="p">));</span>
+</span></span><span class="line"><span class="cl"><span class="kr">const</span> <span class="nx">TemplatesPage</span> <span class="o">=</span> <span class="nx">lazy</span><span class="p">(()</span> <span class="o">=&gt;</span> <span class="kr">import</span><span class="p">(</span><span class="s2">&#34;./templates/TemplatesPage&#34;</span><span class="p">));</span>
+</span></span></code></pre></div><p>The two-tier structure means navigating between workspace pages (e.g., from jobs to templates) doesn&rsquo;t re-download the sidebar, auth logic, or layout shell. Only the page-specific code is fetched.</p>
+<div class="mermaid">
+  graph TD
+    A[Browser loads /] --> B["App.tsx (shell chunk)"]
+    B --> C["LandingPage chunk"]
+    
+    A2[User logs in] --> D["Main chunk (sidebar + layout)"]
+    D --> E["MergeNew chunk"]
+    D --> F["JobDashboard chunk"]
+    D --> G["TemplatesPage chunk"]
+    D --> H["BillingPage chunk"]
+    
+    E -.->|shares| D
+    F -.->|shares| D
+    G -.->|shares| D
+    H -.->|shares| D
+</div>
+
+<p>Each tool page is also its own chunk. The PDF compressor imports <code>pdf-lib</code> but not <code>fabric</code>. The QR code generator imports neither. Users who only visit <code>/tools/qr-code-generator</code> never download the PDF engine.</p>
+<h2 id="the-suspense--error-boundary-sandwich">The Suspense + Error Boundary Sandwich</h2>
+<p><code>React.lazy</code> returns a promise. If the promise rejects — network timeout, stale deployment, CDN hiccup — React throws. Without an error boundary, the entire app unmounts. White screen.</p>
+<p>We wrap every lazy-loaded route tree in the same pattern:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-tsx" data-lang="tsx"><span class="line"><span class="cl"><span class="p">&lt;</span><span class="nt">Suspense</span> <span class="na">fallback</span><span class="o">=</span><span class="p">{&lt;</span><span class="nt">LoadingFallback</span> <span class="p">/&gt;}&gt;</span>
+</span></span><span class="line"><span class="cl">  <span class="p">&lt;</span><span class="nt">ChunkErrorBoundary</span> <span class="na">variant</span><span class="o">=</span><span class="s">&#34;fullscreen&#34;</span><span class="p">&gt;</span>
+</span></span><span class="line"><span class="cl">    <span class="p">&lt;</span><span class="nt">AppRoutes</span> <span class="p">/&gt;</span>
+</span></span><span class="line"><span class="cl">  <span class="p">&lt;/</span><span class="nt">ChunkErrorBoundary</span><span class="p">&gt;</span>
+</span></span><span class="line"><span class="cl"><span class="p">&lt;/</span><span class="nt">Suspense</span><span class="p">&gt;</span>
+</span></span></code></pre></div><p><strong><code>Suspense</code></strong> handles the loading state while the chunk downloads. <strong><code>ChunkErrorBoundary</code></strong> handles the failure state when the download fails. They&rsquo;re complementary — <code>Suspense</code> is for the expected case, the error boundary is for the broken case.</p>
+<p>The <code>LoadingFallback</code> has two variants: <code>fullscreen</code> for root-level routes (covers the viewport with a centered spinner and logo) and <code>inline</code> for workspace routes (fits within the sidebar layout so the user doesn&rsquo;t lose context).</p>
+<h2 id="chunkerrorboundary-retry-without-losing-your-mind">ChunkErrorBoundary: Retry Without Losing Your Mind</h2>
+<p>The <code>ChunkErrorBoundary</code> does one job: when a chunk fails to load, give the user a way to recover without losing their place.</p>
+<p>The first challenge is detection. Chunk errors come from the bundler, not your code, and the error messages vary between Vite and webpack:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-ts" data-lang="ts"><span class="line"><span class="cl"><span class="c1">// ChunkErrorBoundary.tsx — error detection
+</span></span></span><span class="line"><span class="cl"><span class="kd">function</span> <span class="nx">isChunkLoadError</span><span class="p">(</span><span class="nx">error</span>: <span class="kt">Error</span><span class="p">)</span><span class="o">:</span> <span class="kr">boolean</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">  <span class="kr">const</span> <span class="nx">msg</span> <span class="o">=</span> <span class="nx">error</span><span class="p">.</span><span class="nx">message</span><span class="p">.</span><span class="nx">toLowerCase</span><span class="p">();</span>
+</span></span><span class="line"><span class="cl">  <span class="k">return</span> <span class="p">(</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">msg</span><span class="p">.</span><span class="nx">includes</span><span class="p">(</span><span class="s2">&#34;loading chunk&#34;</span><span class="p">)</span> <span class="o">||</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">msg</span><span class="p">.</span><span class="nx">includes</span><span class="p">(</span><span class="s2">&#34;failed to fetch dynamically&#34;</span><span class="p">)</span> <span class="o">||</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">msg</span><span class="p">.</span><span class="nx">includes</span><span class="p">(</span><span class="s2">&#34;importing a module script failed&#34;</span><span class="p">)</span> <span class="o">||</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">msg</span><span class="p">.</span><span class="nx">includes</span><span class="p">(</span><span class="s2">&#34;loading css chunk&#34;</span><span class="p">)</span> <span class="o">||</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">msg</span><span class="p">.</span><span class="nx">includes</span><span class="p">(</span><span class="s2">&#34;networkerror&#34;</span><span class="p">)</span> <span class="o">||</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">msg</span><span class="p">.</span><span class="nx">includes</span><span class="p">(</span><span class="s2">&#34;failed to load script&#34;</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">  <span class="p">);</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></div><p>The second challenge is retry. A chunk failure usually means the browser cached an old <code>index.html</code> that references a JavaScript file that no longer exists on the server. The only reliable fix is a full page reload — you can&rsquo;t just re-call the dynamic import because the ES module cache will return the same failed promise.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-ts" data-lang="ts"><span class="line"><span class="cl"><span class="c1">// ChunkErrorBoundary.tsx — retry handler
+</span></span></span><span class="line"><span class="cl"><span class="nx">handleRetry</span> <span class="o">=</span> <span class="p">()</span><span class="o">:</span> <span class="k">void</span> <span class="o">=&gt;</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">  <span class="kr">const</span> <span class="nx">retryCount</span> <span class="o">=</span> <span class="nx">getRetryCount</span><span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="nx">storageKey</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">  <span class="k">if</span> <span class="p">(</span><span class="nx">retryCount</span> <span class="o">&gt;=</span> <span class="nx">MAX_RETRIES</span><span class="p">)</span> <span class="k">return</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">  <span class="nx">setRetryCount</span><span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="nx">storageKey</span><span class="p">,</span> <span class="nx">retryCount</span> <span class="o">+</span> <span class="mi">1</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">  <span class="k">this</span><span class="p">.</span><span class="nx">setState</span><span class="p">({</span> <span class="nx">isRetrying</span>: <span class="kt">true</span> <span class="p">});</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">  <span class="c1">// Full page reload is the only reliable way to clear the ES module cache
+</span></span></span><span class="line"><span class="cl">  <span class="c1">// so the browser re-fetches the failed chunk from the server.
+</span></span></span><span class="line"><span class="cl">  <span class="nb">window</span><span class="p">.</span><span class="nx">location</span><span class="p">.</span><span class="nx">reload</span><span class="p">();</span>
+</span></span><span class="line"><span class="cl"><span class="p">};</span>
+</span></span></code></pre></div><p>The retry count lives in <code>sessionStorage</code>, keyed by the current pathname. This is deliberate — <code>sessionStorage</code> survives <code>window.location.reload()</code> but doesn&rsquo;t persist across tabs or sessions. If the user has retried twice and it still fails, we show a &ldquo;Reload page&rdquo; button instead of &ldquo;Retry,&rdquo; because the problem isn&rsquo;t a transient network glitch. It&rsquo;s a stale deployment that requires a fresh navigation.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-ts" data-lang="ts"><span class="line"><span class="cl"><span class="c1">// Hydrate retry count from sessionStorage (survives page reload)
+</span></span></span><span class="line"><span class="cl"><span class="kr">constructor</span><span class="p">(</span><span class="nx">props</span>: <span class="kt">ChunkErrorBoundaryProps</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">  <span class="kr">super</span><span class="p">(</span><span class="nx">props</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">  <span class="kr">const</span> <span class="nx">retryCount</span> <span class="o">=</span> <span class="nx">getRetryCount</span><span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="nx">storageKey</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">  <span class="k">this</span><span class="p">.</span><span class="nx">state</span> <span class="o">=</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">hasError</span>: <span class="kt">false</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">isChunkError</span>: <span class="kt">false</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">retryCount</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">isRetrying</span>: <span class="kt">false</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">error</span>: <span class="kt">null</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">  <span class="p">};</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></div><p>The boundary also does something subtle but important: non-chunk errors are re-thrown to the parent boundary.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-ts" data-lang="ts"><span class="line"><span class="cl"><span class="nx">componentDidCatch</span><span class="p">(</span><span class="nx">error</span>: <span class="kt">Error</span><span class="p">,</span> <span class="nx">_info</span>: <span class="kt">ErrorInfo</span><span class="p">)</span><span class="o">:</span> <span class="k">void</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">  <span class="c1">// Re-throw non-chunk errors so the top-level SentryErrorBoundary handles them
+</span></span></span><span class="line"><span class="cl">  <span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="nx">isChunkLoadError</span><span class="p">(</span><span class="nx">error</span><span class="p">))</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="k">throw</span> <span class="nx">error</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">  <span class="p">}</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></div><p>If a lazy-loaded component crashes because of a bug — not because of a missing chunk — that&rsquo;s a real error. It should be caught by the Sentry error boundary, reported, and shown as an error page. The <code>ChunkErrorBoundary</code> only handles infrastructure failures, not application errors. The separation keeps the retry logic focused and prevents masking real bugs behind a &ldquo;click to retry&rdquo; button.</p>
+<h2 id="sentry-filtering-the-noise">Sentry: Filtering the Noise</h2>
+<p>Chunk load errors are the most common error in any deployed SPA, and they&rsquo;re almost never actionable. They happen during deployments when a user&rsquo;s browser has an old <code>index.html</code> cached. Sentry would drown in them if we didn&rsquo;t filter them out.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-ts" data-lang="ts"><span class="line"><span class="cl"><span class="c1">// sentry.ts — filter deployment noise
+</span></span></span><span class="line"><span class="cl"><span class="nx">beforeSend</span><span class="p">(</span><span class="nx">event</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">  <span class="c1">// Ignore chunk load errors (common during deployments)
+</span></span></span><span class="line"><span class="cl">  <span class="k">if</span> <span class="p">(</span><span class="nx">event</span><span class="p">.</span><span class="nx">exception</span><span class="o">?</span><span class="p">.</span><span class="nx">values</span><span class="o">?</span><span class="p">.[</span><span class="mi">0</span><span class="p">]</span><span class="o">?</span><span class="p">.</span><span class="nx">value</span><span class="o">?</span><span class="p">.</span><span class="nx">includes</span><span class="p">(</span><span class="s2">&#34;ChunkLoadError&#34;</span><span class="p">))</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="k">return</span> <span class="kc">null</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">  <span class="p">}</span>
+</span></span><span class="line"><span class="cl">  <span class="k">return</span> <span class="nx">event</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></div><p>Dropping these events from Sentry doesn&rsquo;t mean we don&rsquo;t care about the user&rsquo;s experience. It means we handle it in the UI (via <code>ChunkErrorBoundary</code>) rather than in our error tracking. The user gets a retry button. Our alerting stays clean.</p>
+<h2 id="the-lesson">The Lesson</h2>
+<p>Chunking is not optional for SPAs that pull in heavy libraries. The alternative is making every visitor pay for code they&rsquo;ll never execute.</p>
+<p>But chunking introduces a failure mode that most tutorials ignore: what happens when a chunk doesn&rsquo;t load. The answer can&rsquo;t be &ldquo;the user sees a white screen.&rdquo; It has to be: the user sees a clear message, gets a working retry mechanism, and the error is handled in the right layer — the UI, not the error tracker.</p>
+<p>The pattern is simple: <code>Suspense</code> for the expected case, <code>ChunkErrorBoundary</code> for the broken case, <code>sessionStorage</code> for retry state, and <code>beforeSend</code> to keep Sentry clean. Four pieces that together turn a deployment artifact into a recoverable experience.</p>
+
+        
+          
+        
+    </div>
+  
+</div>
+
+<div class="pagination">
+  
+  <a class="pagination-item older" href="https://mergrams.github.io/page/4/">Older</a>
+  
+
+  
+  <a class="pagination-item newer" href="https://mergrams.github.io/page/2/">Newer</a>
+  
+</div>
+
+      </div>
+      <footer class="container" style="padding-bottom: 2rem; margin-top: 1rem; font-size: 0.8rem; color: #9a9a9a; font-family: 'PT Serif', Georgia, 'Times New Roman', serif;">
+        <hr style="margin-bottom: 1rem; border: 0; border-top: 1px solid #eee;">
+        <p>Back to <a href="https://mergram.com" target="_blank" style="color: #313131; text-decoration: underline;">Mergram</a> &mdash; PDF Mail Merge, Made Simple.</p>
+      </footer>
+    </div>
+
+    <label for="sidebar-checkbox" class="sidebar-toggle"></label>
+
+    
+    <script src="https://mergrams.github.io/assets/js/mermaid.min.js"></script>
+    <script>
+      mermaid.initialize({ startOnLoad: true });
+    </script>
+    
+  </body>
+</html>
+

@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en-us">
+
+  <head>
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+
+  <link rel="icon" type="image/svg+xml" href="https://mergrams.github.io/assets/favicon.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+
+  <title>
+    
+      How We Prevented Silent Data Loss with Template Locking &middot; Mergrams
+    
+  </title>
+
+  
+  <link rel="stylesheet" href="https://mergrams.github.io/css/poole.css">
+  <link rel="stylesheet" href="https://mergrams.github.io/css/syntax.css">
+  <link rel="stylesheet" href="https://mergrams.github.io/css/lanyon.css">
+
+  
+  <link rel="apple-touch-icon-precomposed" sizes="144x144" href="https://mergrams.github.io/assets/apple-touch-icon-144-precomposed.png">
+  <link rel="shortcut icon" href="https://mergrams.github.io/assets/favicon.ico">
+
+  
+  <link rel="alternate" type="application/rss+xml" title="RSS" href="https://mergrams.github.io/atom.xml">
+</head>
+
+
+  <body>
+
+    <input type="checkbox" class="sidebar-checkbox" id="sidebar-checkbox">
+
+
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-item">
+    <p>
+      Mergram engineering blog
+    </p>
+  </div>
+
+  <nav class="sidebar-nav">
+    <a class="sidebar-nav-item " href="https://mergrams.github.io/">Home</a>
+    <a class="sidebar-nav-item " href="https://mergrams.github.io/post">Posts</a><a class="sidebar-nav-item" href="https://mergrams.github.io/categories/" title="Categories">Categories</a>
+    <a class="sidebar-nav-item " href="https://mergrams.github.io/about/">About</a>
+      </nav>
+
+  <div class="sidebar-item">
+    <p>Looking for a simple PDF mail merge?</p>
+    <p><a href="https://mergram.com" target="_blank">Visit Mergram &rarr;</a></p>
+  </div>
+
+  <div class="sidebar-item">
+    <p>&copy; Mergram. All rights reserved.</p>
+  </div>
+</div>
+
+
+    
+    <div class="wrap">
+      <div class="masthead">
+        <div class="container">
+          <h3 class="masthead-title">
+            <a href="https://mergrams.github.io/" title="Home">Mergrams</a>
+            <small>A programming blog</small>
+          </h3>
+        </div>
+      </div>
+
+      <div class="container content">
+
+
+<div class="post">
+  <h1 class="post-title">How We Prevented Silent Data Loss with Template Locking</h1>
+  <span class="post-date">Apr 13 2026</span>
+  <p>Two team members open the same template. One places a field in the top-left corner and saves. The other places a different field in the same spot and saves thirty seconds later. The first user&rsquo;s work is gone. No warning. No merge conflict. Just silently overwritten.</p>
+<p>This is the last-write-wins problem, and it&rsquo;s the default behavior of any app that lets multiple users edit the same resource without coordination. Mergram&rsquo;s editor is a canvas-based tool where field placement, sizing, and styling all matter — a silent overwrite doesn&rsquo;t just lose a text change, it loses spatial layout decisions that are hard to reproduce.</p>
+<p>We needed a locking system that was more robust than &ldquo;disable the save button&rdquo; but less oppressive than &ldquo;lock the entire template and block everyone else.&rdquo; Here&rsquo;s what we built.</p>
+<h2 id="the-lock-lifecycle">The Lock Lifecycle</h2>
+<p>The system works on a simple principle: when a user opens a template for editing, they acquire a lock. While they hold the lock, they&rsquo;re the only one who can save. The lock expires if they go idle, and it&rsquo;s released when they navigate away or close the tab.</p>
+<div class="mermaid">
+  graph TD
+    A[User opens template] --> B["POST /lock (acquire)"]
+    B -->|Success| C[Lock acquired — editing allowed]
+    B -->|409 Conflict| D[Read-only mode — LockBanner shown]
+    D -->|Retry with backoff| B
+    C --> E["PUT /lock (heartbeat every 15s)"]
+    E -->|Success| C
+    E -->|409 Conflict| D
+    C --> F[User saves template]
+    C --> G[User navigates away / closes tab]
+    G --> H["DELETE /lock (release)"]
+</div>
+
+<p>The key insight is that the lock isn&rsquo;t permanent and it isn&rsquo;t enforced at the save endpoint. It&rsquo;s enforced in the UI — the editor disables save actions when the lock isn&rsquo;t held. The server&rsquo;s role is to mediate lock acquisition and detect conflicts.</p>
+<h2 id="backend-atomic-acquire-with-row-locking">Backend: Atomic Acquire with Row Locking</h2>
+<p>The lock is stored directly on the <code>templates</code> table: three columns — <code>lockedBy</code> (user UUID), <code>lockedByTab</code> (string), and <code>lockedAt</code> (timestamp). No separate lock table, no distributed coordination, no Redis.</p>
+<p>Acquiring a lock happens inside a PostgreSQL transaction with <code>SELECT ... FOR UPDATE</code>, which prevents two concurrent requests from both reading &ldquo;unlocked&rdquo; and proceeding to acquire:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-ts" data-lang="ts"><span class="line"><span class="cl"><span class="c1">// template.service.ts — atomic lock acquisition
+</span></span></span><span class="line"><span class="cl"><span class="kr">async</span> <span class="nx">acquireLock</span><span class="p">(</span>
+</span></span><span class="line"><span class="cl">  <span class="nx">templateId</span>: <span class="kt">string</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">  <span class="nx">teamId</span>: <span class="kt">string</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">  <span class="nx">userId</span>: <span class="kt">string</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">  <span class="nx">tabId</span>: <span class="kt">string</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl"><span class="p">)</span><span class="o">:</span> <span class="nx">Promise</span><span class="p">&lt;</span><span class="nt">LockInfo</span> <span class="err">|</span> <span class="na">null</span><span class="p">&gt;</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">  <span class="k">return</span> <span class="k">await</span> <span class="nx">db</span><span class="p">.</span><span class="nx">transaction</span><span class="p">(</span><span class="kr">async</span> <span class="p">(</span><span class="nx">tx</span><span class="p">)</span> <span class="o">=&gt;</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="c1">// Lock the row for atomic check-and-update
+</span></span></span><span class="line"><span class="cl">    <span class="kr">const</span> <span class="p">[</span><span class="nx">row</span><span class="p">]</span> <span class="o">=</span> <span class="k">await</span> <span class="nx">tx</span>
+</span></span><span class="line"><span class="cl">      <span class="p">.</span><span class="nx">select</span><span class="p">({</span>
+</span></span><span class="line"><span class="cl">        <span class="nx">lockedBy</span>: <span class="kt">templates.lockedBy</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">        <span class="nx">lockedByTab</span>: <span class="kt">templates.lockedByTab</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">        <span class="nx">lockedAt</span>: <span class="kt">templates.lockedAt</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">      <span class="p">})</span>
+</span></span><span class="line"><span class="cl">      <span class="p">.</span><span class="kr">from</span><span class="p">(</span><span class="nx">templates</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">      <span class="p">.</span><span class="nx">where</span><span class="p">(</span><span class="nx">and</span><span class="p">(</span><span class="nx">eq</span><span class="p">(</span><span class="nx">templates</span><span class="p">.</span><span class="nx">id</span><span class="p">,</span> <span class="nx">templateId</span><span class="p">),</span> <span class="nx">eq</span><span class="p">(</span><span class="nx">templates</span><span class="p">.</span><span class="nx">teamId</span><span class="p">,</span> <span class="nx">teamId</span><span class="p">)))</span>
+</span></span><span class="line"><span class="cl">      <span class="p">.</span><span class="k">for</span><span class="p">(</span><span class="s2">&#34;update&#34;</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">    <span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="nx">row</span><span class="p">)</span> <span class="k">return</span> <span class="kc">null</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">    <span class="c1">// If locked by another user OR another tab, check for staleness
+</span></span></span><span class="line"><span class="cl">    <span class="k">if</span> <span class="p">(</span><span class="nx">row</span><span class="p">.</span><span class="nx">lockedBy</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">      <span class="kr">const</span> <span class="nx">isDifferentUser</span> <span class="o">=</span> <span class="nx">row</span><span class="p">.</span><span class="nx">lockedBy</span> <span class="o">!==</span> <span class="nx">userId</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">      <span class="kr">const</span> <span class="nx">isDifferentTab</span> <span class="o">=</span> <span class="nx">row</span><span class="p">.</span><span class="nx">lockedByTab</span> <span class="o">!==</span> <span class="nx">tabId</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">      <span class="k">if</span> <span class="p">(</span><span class="nx">isDifferentUser</span> <span class="o">||</span> <span class="nx">isDifferentTab</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">        <span class="kr">const</span> <span class="nx">staleThresholdMs</span> <span class="o">=</span> <span class="nb">Date</span><span class="p">.</span><span class="nx">now</span><span class="p">()</span> <span class="o">-</span> <span class="nx">LOCK_STALE_MINUTES</span> <span class="o">*</span> <span class="mi">60</span> <span class="o">*</span> <span class="mi">1000</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">        <span class="k">if</span> <span class="p">(</span>
+</span></span><span class="line"><span class="cl">          <span class="nx">row</span><span class="p">.</span><span class="nx">lockedAt</span> <span class="o">&amp;&amp;</span>
+</span></span><span class="line"><span class="cl">          <span class="k">new</span> <span class="nb">Date</span><span class="p">(</span><span class="nx">row</span><span class="p">.</span><span class="nx">lockedAt</span><span class="p">).</span><span class="nx">getTime</span><span class="p">()</span> <span class="o">&gt;</span> <span class="nx">staleThresholdMs</span>
+</span></span><span class="line"><span class="cl">        <span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">          <span class="k">throw</span> <span class="k">new</span> <span class="nx">TemplateLockedError</span><span class="p">(</span>
+</span></span><span class="line"><span class="cl">            <span class="nx">isDifferentUser</span>
+</span></span><span class="line"><span class="cl">              <span class="o">?</span> <span class="s2">&#34;Template is locked by another user&#34;</span>
+</span></span><span class="line"><span class="cl">              <span class="o">:</span> <span class="s2">&#34;Template is open in another tab/device&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">            <span class="nx">holder</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">            <span class="nx">row</span><span class="p">.</span><span class="nx">lockedAt</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">          <span class="p">);</span>
+</span></span><span class="line"><span class="cl">        <span class="p">}</span>
+</span></span><span class="line"><span class="cl">      <span class="p">}</span>
+</span></span><span class="line"><span class="cl">    <span class="p">}</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">    <span class="c1">// Acquire or refresh the lock
+</span></span></span><span class="line"><span class="cl">    <span class="k">await</span> <span class="nx">tx</span><span class="p">.</span><span class="nx">update</span><span class="p">(</span><span class="nx">templates</span><span class="p">).</span><span class="kr">set</span><span class="p">({</span>
+</span></span><span class="line"><span class="cl">      <span class="nx">lockedBy</span>: <span class="kt">userId</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">      <span class="nx">lockedByTab</span>: <span class="kt">tabId</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">      <span class="nx">lockedAt</span>: <span class="kt">now</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">    <span class="p">});</span>
+</span></span><span class="line"><span class="cl">  <span class="p">});</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></div><p>The <code>FOR UPDATE</code> row lock is the critical piece. Without it, two requests arriving at the same millisecond could both read the lock as available and both write their own lock — a race condition. <code>FOR UPDATE</code> serializes access: the second transaction waits for the first to commit, then sees the updated lock.</p>
+<p>The stale threshold is 2 minutes (<code>LOCK_STALE_MINUTES = 2</code>). Since heartbeats fire every 15 seconds, a lock becomes stale after approximately 4 missed heartbeats — enough tolerance for a flaky network without leaving locks around indefinitely.</p>
+<p>When the lock is held by someone else, the server throws <code>TemplateLockedError</code> with a 409 status and includes the lock holder&rsquo;s name in the response. The frontend uses this to show who&rsquo;s editing:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-ts" data-lang="ts"><span class="line"><span class="cl"><span class="c1">// errors.ts
+</span></span></span><span class="line"><span class="cl"><span class="kr">export</span> <span class="kr">class</span> <span class="nx">TemplateLockedError</span> <span class="kr">extends</span> <span class="nx">TeamError</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">  <span class="kr">constructor</span><span class="p">(</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">message</span>: <span class="kt">string</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">    <span class="kr">public</span> <span class="kr">readonly</span> <span class="nx">lockedBy</span><span class="o">:</span> <span class="p">{</span> <span class="nx">id</span>: <span class="kt">string</span><span class="p">;</span> <span class="nx">name</span>: <span class="kt">string</span> <span class="p">}</span> <span class="o">|</span> <span class="kc">null</span> <span class="o">=</span> <span class="kc">null</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">    <span class="kr">public</span> <span class="kr">readonly</span> <span class="nx">lockedAt</span>: <span class="kt">string</span> <span class="o">|</span> <span class="kc">null</span> <span class="o">=</span> <span class="kc">null</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">  <span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="kr">super</span><span class="p">(</span><span class="nx">message</span><span class="p">,</span> <span class="mi">409</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">  <span class="p">}</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></div><h2 id="frontend-the-usetemplatelock-hook">Frontend: The useTemplateLock Hook</h2>
+<p>The <code>useTemplateLock</code> hook manages the entire client-side lifecycle. It&rsquo;s a <code>useReducer</code>-based state machine with eight action types — not because we love complexity, but because the lock has that many distinct states.</p>
+<p>The hook handles five concerns:</p>
+<p><strong>1. Acquire on mount.</strong> When a template loads, the hook sends a <code>POST /lock</code> request with the user&rsquo;s ID and a unique <code>tabId</code> (generated per browser tab). The <code>tabId</code> is what distinguishes &ldquo;me on another tab&rdquo; from &ldquo;another user.&rdquo;</p>
+<p><strong>2. Heartbeat.</strong> Every 15 seconds, a <code>PUT /lock</code> refreshes the <code>lockedAt</code> timestamp. If the heartbeat fails with a 409, the lock was taken by someone else — the editor drops into read-only mode.</p>
+<p><strong>3. Exponential backoff retry.</strong> When acquisition fails because someone else holds the lock, the hook retries automatically: 5s, 10s, 20s, 30s (cap). As soon as the other user releases the lock, the retry succeeds and the editor becomes writable again.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-ts" data-lang="ts"><span class="line"><span class="cl"><span class="c1">// useTemplateLock.ts — retry with backoff
+</span></span></span><span class="line"><span class="cl"><span class="kr">const</span> <span class="nx">startRetry</span> <span class="o">=</span> <span class="nx">useCallback</span><span class="p">(</span>
+</span></span><span class="line"><span class="cl">  <span class="p">(</span><span class="nx">id</span>: <span class="kt">string</span><span class="p">,</span> <span class="nx">signal?</span>: <span class="kt">AbortSignal</span><span class="p">)</span> <span class="o">=&gt;</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">clearTimers</span><span class="p">();</span>
+</span></span><span class="line"><span class="cl">    <span class="kd">let</span> <span class="nx">attempt</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">    <span class="kr">const</span> <span class="nx">scheduleRetry</span> <span class="o">=</span> <span class="p">()</span> <span class="o">=&gt;</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">      <span class="kr">const</span> <span class="nx">delay</span> <span class="o">=</span> <span class="nb">Math</span><span class="p">.</span><span class="nx">min</span><span class="p">(</span>
+</span></span><span class="line"><span class="cl">        <span class="nx">RETRY_INITIAL_MS</span> <span class="o">*</span> <span class="nx">RETRY_BACKOFF_FACTOR</span> <span class="o">**</span> <span class="nx">attempt</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">        <span class="nx">RETRY_MAX_MS</span><span class="p">,</span> <span class="c1">// 30s cap
+</span></span></span><span class="line"><span class="cl">      <span class="p">);</span>
+</span></span><span class="line"><span class="cl">      <span class="nx">attempt</span><span class="o">++</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">      <span class="nx">retryTimerRef</span><span class="p">.</span><span class="nx">current</span> <span class="o">=</span> <span class="nx">setTimeout</span><span class="p">(</span><span class="kr">async</span> <span class="p">()</span> <span class="o">=&gt;</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">        <span class="k">try</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">          <span class="kr">const</span> <span class="nx">result</span> <span class="o">=</span> <span class="k">await</span> <span class="nx">acquireTemplateLock</span><span class="p">(</span><span class="nx">id</span><span class="p">,</span> <span class="nx">tabIdRef</span><span class="p">.</span><span class="nx">current</span><span class="p">,</span> <span class="nx">signal</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">          <span class="k">if</span> <span class="p">(</span><span class="nx">result</span><span class="p">.</span><span class="nx">locked</span> <span class="o">&amp;&amp;</span> <span class="nx">result</span><span class="p">.</span><span class="nx">lockedBy</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">            <span class="nx">dispatch</span><span class="p">({</span> <span class="kr">type</span><span class="o">:</span> <span class="s2">&#34;ACQUIRE_SUCCESS&#34;</span><span class="p">,</span> <span class="nx">id</span> <span class="p">});</span>
+</span></span><span class="line"><span class="cl">            <span class="nx">startHeartbeat</span><span class="p">(</span><span class="nx">id</span><span class="p">,</span> <span class="nx">signal</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">            <span class="k">return</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">          <span class="p">}</span>
+</span></span><span class="line"><span class="cl">        <span class="p">}</span> <span class="k">catch</span> <span class="p">{</span> <span class="cm">/* still locked — continue backoff */</span> <span class="p">}</span>
+</span></span><span class="line"><span class="cl">        <span class="k">if</span> <span class="p">(</span><span class="nx">mountedRef</span><span class="p">.</span><span class="nx">current</span><span class="p">)</span> <span class="nx">scheduleRetry</span><span class="p">();</span>
+</span></span><span class="line"><span class="cl">      <span class="p">},</span> <span class="nx">delay</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">    <span class="p">};</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">    <span class="nx">scheduleRetry</span><span class="p">();</span>
+</span></span><span class="line"><span class="cl">  <span class="p">},</span>
+</span></span><span class="line"><span class="cl">  <span class="p">[</span><span class="nx">clearTimers</span><span class="p">,</span> <span class="nx">startHeartbeat</span><span class="p">],</span>
+</span></span><span class="line"><span class="cl"><span class="p">);</span>
+</span></span></code></pre></div><p><strong>4. Release on unmount.</strong> When the user navigates away or closes the tab, the hook sends a <code>DELETE /lock</code> to release immediately. It also registers a <code>beforeunload</code> handler as a fallback — using <code>fetch</code> with <code>keepalive: true</code> so the request survives page teardown:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-ts" data-lang="ts"><span class="line"><span class="cl"><span class="c1">// useTemplateLock.ts — beforeunload fallback
+</span></span></span><span class="line"><span class="cl"><span class="kr">const</span> <span class="nx">handleBeforeUnload</span> <span class="o">=</span> <span class="p">()</span> <span class="o">=&gt;</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">  <span class="k">if</span> <span class="p">(</span><span class="nx">templateIdRef</span><span class="p">.</span><span class="nx">current</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">fetch</span><span class="p">(</span>
+</span></span><span class="line"><span class="cl">      <span class="sb">`/api/templates/</span><span class="si">${</span><span class="nx">templateIdRef</span><span class="p">.</span><span class="nx">current</span><span class="si">}</span><span class="sb">/lock?tabId=</span><span class="si">${</span><span class="nx">tabIdRef</span><span class="p">.</span><span class="nx">current</span><span class="si">}</span><span class="sb">`</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">      <span class="p">{</span> <span class="nx">method</span><span class="o">:</span> <span class="s2">&#34;DELETE&#34;</span><span class="p">,</span> <span class="nx">credentials</span><span class="o">:</span> <span class="s2">&#34;include&#34;</span><span class="p">,</span> <span class="nx">keepalive</span>: <span class="kt">true</span> <span class="p">},</span>
+</span></span><span class="line"><span class="cl">    <span class="p">).</span><span class="k">catch</span><span class="p">(()</span> <span class="o">=&gt;</span> <span class="p">{});</span>
+</span></span><span class="line"><span class="cl">  <span class="p">}</span>
+</span></span><span class="line"><span class="cl"><span class="p">};</span>
+</span></span></code></pre></div><p>The <code>keepalive: true</code> flag is essential here. A normal <code>fetch</code> would be cancelled when the page unloads, meaning the lock would never release and would have to wait for the 2-minute stale threshold. With <code>keepalive</code>, the browser queues the request and sends it even after the page is gone.</p>
+<p><strong>5. Force release.</strong> Admins and owners can override a lock held by someone else. The hook exposes a <code>forceRelease()</code> method that releases the current lock and immediately re-acquires it for the calling user. A <code>forceReleaseInProgressRef</code> prevents double-clicks.</p>
+<h2 id="the-lockbanner-three-states-one-component">The LockBanner: Three States, One Component</h2>
+<p>When the user can&rsquo;t edit, they need to know why. The <code>LockBanner</code> component renders at the top of the editor with three visual states:</p>
+<div class="mermaid">
+  graph TD
+    A{Lock status} -->|"isLockLoading"| B["🔵 Acquiring edit lock..."]
+    A -->|"lockHolder (other user)"| C["🟡 Edited by {name} — read-only"]
+    A -->|"lockError, no holder"| D["🔴 Failed to acquire lock"]
+    
+    C -->|"Admin/Owner"| E["Force Unlock button"]
+</div>
+
+<ul>
+<li><strong>Loading</strong> — blue, shows a spinner. The user sees this for the fraction of a second while the initial acquire request is in-flight.</li>
+<li><strong>Conflict</strong> — amber, shows the lock holder&rsquo;s name with an underline. The editor switches to read-only mode. Admins and owners see a &ldquo;Force Unlock&rdquo; button.</li>
+<li><strong>Error</strong> — red, shown when the acquire request fails for a non-conflict reason (network error, server error). Suggests refreshing.</li>
+</ul>
+<p>The banner is informational, not blocking — the user can still scroll and inspect the template while waiting for the lock.</p>
+<h2 id="the-worker-safety-net">The Worker Safety Net</h2>
+<p>Heartbeats and <code>beforeunload</code> handlers cover the normal cases. But browsers crash, laptops close mid-edit, and network connections drop without triggering <code>beforeunload</code>. In those scenarios, the lock sits in the database indefinitely.</p>
+<p>The background worker — which already polls for merge jobs — runs a stale lock recovery pass alongside its other periodic tasks:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-ts" data-lang="ts"><span class="line"><span class="cl"><span class="c1">// workers/loop.ts — recover stale template locks
+</span></span></span><span class="line"><span class="cl"><span class="kr">export</span> <span class="kr">async</span> <span class="kd">function</span> <span class="nx">recoverStaleTemplateLocks() {</span>
+</span></span><span class="line"><span class="cl">  <span class="kr">const</span> <span class="nx">staleThreshold</span> <span class="o">=</span> <span class="k">new</span> <span class="nb">Date</span><span class="p">(</span>
+</span></span><span class="line"><span class="cl">    <span class="nb">Date</span><span class="p">.</span><span class="nx">now</span><span class="p">()</span> <span class="o">-</span> <span class="nx">LOCK_STALE_MINUTES</span> <span class="o">*</span> <span class="mi">60</span> <span class="o">*</span> <span class="mi">1000</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">  <span class="p">).</span><span class="nx">toISOString</span><span class="p">();</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">  <span class="kr">const</span> <span class="nx">result</span> <span class="o">=</span> <span class="k">await</span> <span class="nx">db</span>
+</span></span><span class="line"><span class="cl">    <span class="p">.</span><span class="nx">update</span><span class="p">(</span><span class="nx">templates</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">    <span class="p">.</span><span class="kr">set</span><span class="p">({</span> <span class="nx">lockedBy</span>: <span class="kt">null</span><span class="p">,</span> <span class="nx">lockedByTab</span>: <span class="kt">null</span><span class="p">,</span> <span class="nx">lockedAt</span>: <span class="kt">null</span> <span class="p">})</span>
+</span></span><span class="line"><span class="cl">    <span class="p">.</span><span class="nx">where</span><span class="p">(</span>
+</span></span><span class="line"><span class="cl">      <span class="nx">and</span><span class="p">(</span>
+</span></span><span class="line"><span class="cl">        <span class="nx">sql</span><span class="sb">`</span><span class="si">${</span><span class="nx">templates</span><span class="p">.</span><span class="nx">lockedBy</span><span class="si">}</span><span class="sb"> IS NOT NULL`</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">        <span class="nx">lt</span><span class="p">(</span><span class="nx">templates</span><span class="p">.</span><span class="nx">lockedAt</span><span class="p">,</span> <span class="nx">staleThreshold</span><span class="p">),</span>
+</span></span><span class="line"><span class="cl">      <span class="p">),</span>
+</span></span><span class="line"><span class="cl">    <span class="p">)</span>
+</span></span><span class="line"><span class="cl">    <span class="p">.</span><span class="nx">returning</span><span class="p">({</span> <span class="nx">id</span>: <span class="kt">templates.id</span> <span class="p">});</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></div><p>This runs every 5 minutes. Any lock whose <code>lockedAt</code> timestamp is older than 2 minutes gets cleared. The 2-minute threshold and 15-second heartbeat interval mean a lock is recovered within ~5 minutes of the user going offline — fast enough to be useful, slow enough to tolerate network hiccups.</p>
+<p>The same worker also recovers stale <em>job</em> locks with a similar pattern, using <code>lockedBy</code> and <code>lockedAt</code> columns on the <code>jobs</code> table. The principle is identical: if a worker process crashes mid-job, another worker picks it up after the stale threshold passes.</p>
+<h2 id="the-lesson">The Lesson</h2>
+<p>Locking is one of those features that&rsquo;s invisible when it works and catastrophic when it doesn&rsquo;t. The challenge isn&rsquo;t the happy path — it&rsquo;s the edge cases: the user who opens three tabs, the heartbeat that fails because of a proxy timeout, the <code>beforeunload</code> that doesn&rsquo;t fire on mobile Safari.</p>
+<p>The system works because every layer has a fallback. The heartbeat keeps the lock alive. The stale threshold reclaims abandoned locks. The <code>beforeunload</code> handler releases on navigation. The worker cleans up what the browser couldn&rsquo;t. The retry loop polls for availability. The <code>LockBanner</code> tells the user what&rsquo;s happening instead of silently disabling the save button.</p>
+<p>None of these pieces is complicated on its own. Together, they cover the gap between &ldquo;theoretically correct&rdquo; and &ldquo;works in production.&rdquo;</p>
+
+</div>
+
+      </div>
+      <footer class="container" style="padding-bottom: 2rem; margin-top: 1rem; font-size: 0.8rem; color: #9a9a9a; font-family: 'PT Serif', Georgia, 'Times New Roman', serif;">
+        <hr style="margin-bottom: 1rem; border: 0; border-top: 1px solid #eee;">
+        <p>Back to <a href="https://mergram.com" target="_blank" style="color: #313131; text-decoration: underline;">Mergram</a> &mdash; PDF Mail Merge, Made Simple.</p>
+      </footer>
+    </div>
+
+    <label for="sidebar-checkbox" class="sidebar-toggle"></label>
+
+    
+    <script src="https://mergrams.github.io/assets/js/mermaid.min.js"></script>
+    <script>
+      mermaid.initialize({ startOnLoad: true });
+    </script>
+    
+  </body>
+</html>
+

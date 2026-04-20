@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en-us">
+
+  <head>
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+
+  <link rel="icon" type="image/svg+xml" href="https://mergrams.github.io/assets/favicon.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+
+  <title>
+    
+      Why Your Product Needs an Onboarding Flow (and How We Built Ours) &middot; Mergrams
+    
+  </title>
+
+  
+  <link rel="stylesheet" href="https://mergrams.github.io/css/poole.css">
+  <link rel="stylesheet" href="https://mergrams.github.io/css/syntax.css">
+  <link rel="stylesheet" href="https://mergrams.github.io/css/lanyon.css">
+
+  
+  <link rel="apple-touch-icon-precomposed" sizes="144x144" href="https://mergrams.github.io/assets/apple-touch-icon-144-precomposed.png">
+  <link rel="shortcut icon" href="https://mergrams.github.io/assets/favicon.ico">
+
+  
+  <link rel="alternate" type="application/rss+xml" title="RSS" href="https://mergrams.github.io/atom.xml">
+</head>
+
+
+  <body>
+
+    <input type="checkbox" class="sidebar-checkbox" id="sidebar-checkbox">
+
+
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-item">
+    <p>
+      Mergram engineering blog
+    </p>
+  </div>
+
+  <nav class="sidebar-nav">
+    <a class="sidebar-nav-item " href="https://mergrams.github.io/">Home</a>
+    <a class="sidebar-nav-item " href="https://mergrams.github.io/post">Posts</a><a class="sidebar-nav-item" href="https://mergrams.github.io/categories/" title="Categories">Categories</a>
+    <a class="sidebar-nav-item " href="https://mergrams.github.io/about/">About</a>
+      </nav>
+
+  <div class="sidebar-item">
+    <p>Looking for a simple PDF mail merge?</p>
+    <p><a href="https://mergram.com" target="_blank">Visit Mergram &rarr;</a></p>
+  </div>
+
+  <div class="sidebar-item">
+    <p>&copy; Mergram. All rights reserved.</p>
+  </div>
+</div>
+
+
+    
+    <div class="wrap">
+      <div class="masthead">
+        <div class="container">
+          <h3 class="masthead-title">
+            <a href="https://mergrams.github.io/" title="Home">Mergrams</a>
+            <small>A programming blog</small>
+          </h3>
+        </div>
+      </div>
+
+      <div class="container content">
+
+
+<div class="post">
+  <h1 class="post-title">Why Your Product Needs an Onboarding Flow (and How We Built Ours)</h1>
+  <span class="post-date">Mar 31 2026</span>
+  <p>A user signs up. They land on your app. They see a sidebar with seven navigation items and a main area that&rsquo;s mostly empty. They click around for thirty seconds, don&rsquo;t understand the workflow, and leave.</p>
+<p>That was Mergram before we added onboarding. The product worked — you could upload a PDF, load a spreadsheet, drag fields onto a canvas, and generate merged documents. But none of that mattered if the user couldn&rsquo;t figure out the order of operations in the first minute.</p>
+<p>Onboarding isn&rsquo;t a nice-to-have. It&rsquo;s the difference between a user who understands your product and a user who thinks your product is broken.</p>
+<h2 id="the-problem-a-powerful-editor-with-no-starting-point">The Problem: A Powerful Editor with No Starting Point</h2>
+<p>Mergram&rsquo;s core flow has four steps: upload a PDF template, load a spreadsheet, place data fields on the canvas, and generate merged documents. When a new user landed on the editor, they saw a Fabric.js canvas and a sidebar. No PDF. No data. No indication of what to do first.</p>
+<p>We had an <code>EmptyState</code> component — the reusable one with an icon, title, and action button — but it only told users to upload a file. It didn&rsquo;t explain <em>why</em>, or what would happen next, or how the pieces fit together. The user had to discover the entire workflow through trial and error.</p>
+<div class="mermaid">
+  graph TD
+    A[User signs up] --> B[Lands on editor]
+    B --> C[Blank canvas]
+    C --> D{What do I do?}
+    D -->|Trial and error| E[Uploads PDF]
+    E --> F{Now what?}
+    F -->|Gives up| G[Leaves]
+</div>
+
+<p>The fix wasn&rsquo;t adding more documentation or a longer help page. It was guiding the user through the flow <em>inside the product</em>, where the actual work happens.</p>
+<h2 id="what-we-built-a-5-step-interactive-tour">What We Built: A 5-Step Interactive Tour</h2>
+<p>We built a guided tour that activates automatically on first login. It walks the user through each step of the mail merge workflow using a spotlight overlay — a dark backdrop with a cutout that highlights the relevant UI element.</p>
+<div class="mermaid">
+  graph TD
+    A["1. Welcome"] --> B["2. Upload PDF"]
+    B --> C["3. Upload Excel"]
+    C --> D["4. Place Fields"]
+    D --> E["5. Generate"]
+
+    B -.->|auto-loads demo| F["certificate.pdf"]
+    C -.->|auto-loads demo| G["contacts.csv"]
+</div>
+
+<p>The five steps map directly to the product&rsquo;s core workflow. Each step has a target element in the DOM, a tooltip with a description, and — critically — for the upload steps, the tour doesn&rsquo;t just point at a button and wait. It <em>auto-loads demo assets</em> so the user sees the editor in a populated state without having to find their own files.</p>
+<h2 id="architecture-three-files-one-hook">Architecture: Three Files, One Hook</h2>
+<p>The onboarding system is intentionally modular. It&rsquo;s split across three concerns:</p>
+<p><strong>1. State management</strong> — <code>useOnboarding</code> hook</p>
+<p><strong>2. Step definitions</strong> — <code>OnboardingTour</code> component</p>
+<p><strong>3. Visual overlay</strong> — <code>TourOverlay</code> component</p>
+<h3 id="the-state-hook">The State Hook</h3>
+<p>The hook manages the tour&rsquo;s lifecycle: whether it&rsquo;s active, which step the user is on, and how completion is tracked. It checks two sources before activating:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-ts" data-lang="ts"><span class="line"><span class="cl"><span class="c1">// useOnboarding.ts — dual-source completion check
+</span></span></span><span class="line"><span class="cl"><span class="kr">const</span> <span class="nx">serverDone</span> <span class="o">=</span> <span class="nx">session</span><span class="o">?</span><span class="p">.</span><span class="nx">user</span><span class="o">?</span><span class="p">.</span><span class="nx">config</span><span class="o">?</span><span class="p">.</span><span class="nx">onboardingCompleted</span> <span class="o">===</span> <span class="kc">true</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1">// Activate only if BOTH are false
+</span></span></span><span class="line"><span class="cl"><span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="nx">serverDone</span> <span class="o">&amp;&amp;</span> <span class="o">!</span><span class="nx">isOnboardingDoneLocal</span><span class="p">(</span><span class="nx">userId</span><span class="p">))</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">  <span class="nx">setIsActive</span><span class="p">(</span><span class="kc">true</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">  <span class="nx">setCurrentStepIndex</span><span class="p">(</span><span class="mi">0</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></div><p>We use localStorage as a fast fallback and the server as the source of truth. When the user completes the tour, both are updated:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-ts" data-lang="ts"><span class="line"><span class="cl"><span class="kr">const</span> <span class="nx">completeTour</span> <span class="o">=</span> <span class="nx">useCallback</span><span class="p">(()</span> <span class="o">=&gt;</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">  <span class="k">if</span> <span class="p">(</span><span class="nx">userId</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">markOnboardingDoneLocal</span><span class="p">(</span><span class="nx">userId</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">    <span class="kr">import</span><span class="p">(</span><span class="s2">&#34;../lib/auth&#34;</span><span class="p">)</span>
+</span></span><span class="line"><span class="cl">      <span class="p">.</span><span class="nx">then</span><span class="p">(({</span> <span class="nx">updateUserConfig</span> <span class="p">})</span> <span class="o">=&gt;</span>
+</span></span><span class="line"><span class="cl">        <span class="nx">updateUserConfig</span><span class="p">({</span> <span class="nx">onboardingCompleted</span>: <span class="kt">true</span> <span class="p">}),</span>
+</span></span><span class="line"><span class="cl">      <span class="p">)</span>
+</span></span><span class="line"><span class="cl">      <span class="p">.</span><span class="k">catch</span><span class="p">(()</span> <span class="o">=&gt;</span> <span class="p">{});</span> <span class="c1">// Fire-and-forget
+</span></span></span><span class="line"><span class="cl">  <span class="p">}</span>
+</span></span><span class="line"><span class="cl">  <span class="nx">setIsActive</span><span class="p">(</span><span class="kc">false</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl"><span class="p">},</span> <span class="p">[</span><span class="nx">userId</span><span class="p">]);</span>
+</span></span></code></pre></div><p>The <code>catch(() =&gt; {})</code> is deliberate. Onboarding completion is a nice-to-have on the server — if the network request fails, the user still had the tour experience. They&rsquo;ll just see it again next session, which is an acceptable fallback.</p>
+<p>The hook exposes a clean interface:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-ts" data-lang="ts"><span class="line"><span class="cl"><span class="kr">export</span> <span class="kr">interface</span> <span class="nx">UseOnboardingReturn</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">  <span class="nx">isActive</span>: <span class="kt">boolean</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">  <span class="nx">currentStep</span>: <span class="kt">OnboardingStep</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">  <span class="nx">stepNumber</span>: <span class="kt">number</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">  <span class="nx">totalSteps</span>: <span class="kt">number</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">  <span class="nx">next</span><span class="o">:</span> <span class="p">()</span> <span class="o">=&gt;</span> <span class="k">void</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">  <span class="nx">skip</span><span class="o">:</span> <span class="p">()</span> <span class="o">=&gt;</span> <span class="k">void</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">  <span class="nx">goToStep</span><span class="o">:</span> <span class="p">(</span><span class="nx">step</span>: <span class="kt">OnboardingStep</span><span class="p">)</span> <span class="o">=&gt;</span> <span class="k">void</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></div><p>The <code>goToStep</code> method is the key to making the tour feel responsive. When the user&rsquo;s action in step 2 (uploading a PDF) triggers a state change in the editor, the editor can call <code>goToStep(&quot;upload-excel&quot;)</code> to advance the tour without the user having to click &ldquo;Next.&rdquo; The tour follows the user&rsquo;s progress rather than forcing a rigid click-through.</p>
+<h3 id="step-definitions">Step Definitions</h3>
+<p>Each step is a static configuration object. No logic, just data:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-ts" data-lang="ts"><span class="line"><span class="cl"><span class="kr">const</span> <span class="nx">STEP_CONFIGS</span>: <span class="kt">Record</span><span class="p">&lt;</span><span class="nt">OnboardingStep</span><span class="p">,</span> <span class="na">TourStepConfig</span><span class="p">&gt;</span> <span class="o">=</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">  <span class="nx">welcome</span><span class="o">:</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">placement</span><span class="o">:</span> <span class="s2">&#34;center&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">title</span><span class="o">:</span> <span class="s2">&#34;Welcome to Mergram!&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">description</span><span class="o">:</span>
+</span></span><span class="line"><span class="cl">      <span class="s2">&#34;Let&#39;s create your first mail merge. We&#39;ll walk you through &#34;</span> <span class="o">+</span>
+</span></span><span class="line"><span class="cl">      <span class="s2">&#34;each step — uploading a PDF template, adding a spreadsheet, &#34;</span> <span class="o">+</span>
+</span></span><span class="line"><span class="cl">      <span class="s2">&#34;and placing data fields. It only takes a minute!&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">icon</span><span class="o">:</span> <span class="s2">&#34;wand-magic-sparkles&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">  <span class="p">},</span>
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;upload-pdf&#34;</span><span class="o">:</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">targetSelector</span><span class="o">:</span> <span class="s2">&#34;[data-tour=&#39;upload-pdf&#39;]&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">placement</span><span class="o">:</span> <span class="s2">&#34;bottom&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">title</span><span class="o">:</span> <span class="s2">&#34;Upload Your PDF Template&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">description</span><span class="o">:</span>
+</span></span><span class="line"><span class="cl">      <span class="s1">&#39;Click &#34;Choose PDF Template&#34; to upload a PDF. We\&#39;ve already &#39;</span> <span class="o">+</span>
+</span></span><span class="line"><span class="cl">      <span class="s1">&#39;prepared a sample certificate for you — it will load automatically!&#39;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">icon</span><span class="o">:</span> <span class="p">[</span><span class="s2">&#34;far&#34;</span><span class="p">,</span> <span class="s2">&#34;file-pdf&#34;</span><span class="p">],</span>
+</span></span><span class="line"><span class="cl">  <span class="p">},</span>
+</span></span><span class="line"><span class="cl">  <span class="c1">// ... three more steps
+</span></span></span><span class="line"><span class="cl"><span class="p">};</span>
+</span></span></code></pre></div><p>The <code>targetSelector</code> uses <code>data-tour</code> attributes on the actual DOM elements. This decouples the tour from the component internals — the editor components don&rsquo;t import anything onboarding-related. They just add <code>data-tour=&quot;upload-pdf&quot;</code> to the right element, and the overlay finds it with <code>document.querySelector</code>.</p>
+<p>This is the pattern to follow if you build something similar: <strong>attribute selectors over component refs</strong>. Refs tie the tour to the component tree. Attribute selectors tie it to the DOM, which is what you&rsquo;re actually highlighting.</p>
+<h3 id="the-spotlight-overlay">The Spotlight Overlay</h3>
+<p>The <code>TourOverlay</code> component does three things: renders a dark backdrop, cuts a spotlight hole over the target element, and positions the tooltip relative to that hole.</p>
+<p>The spotlight is a single <code>div</code> with a massive <code>boxShadow</code>:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-ts" data-lang="ts"><span class="line"><span class="cl"><span class="kr">const</span> <span class="nx">spotlightStyle</span>: <span class="kt">React.CSSProperties</span> <span class="o">=</span> <span class="nx">targetRect</span>
+</span></span><span class="line"><span class="cl">  <span class="o">?</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">      <span class="nx">position</span><span class="o">:</span> <span class="s2">&#34;fixed&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">      <span class="nx">top</span>: <span class="kt">targetRect.top</span> <span class="o">-</span> <span class="nx">SPOTLIGHT_PADDING</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">      <span class="nx">left</span>: <span class="kt">targetRect.left</span> <span class="o">-</span> <span class="nx">SPOTLIGHT_PADDING</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">      <span class="nx">width</span>: <span class="kt">targetRect.width</span> <span class="o">+</span> <span class="nx">SPOTLIGHT_PADDING</span> <span class="o">*</span> <span class="mi">2</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">      <span class="nx">height</span>: <span class="kt">targetRect.height</span> <span class="o">+</span> <span class="nx">SPOTLIGHT_PADDING</span> <span class="o">*</span> <span class="mi">2</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">      <span class="nx">borderRadius</span>: <span class="kt">12</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">      <span class="nx">boxShadow</span><span class="o">:</span> <span class="s2">&#34;0 0 0 9999px rgba(0,0,0,0.55)&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">      <span class="nx">transition</span><span class="o">:</span> <span class="s2">&#34;all 0.4s cubic-bezier(0.4, 0, 0.2, 1)&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">      <span class="nx">zIndex</span>: <span class="kt">200</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">      <span class="nx">pointerEvents</span><span class="o">:</span> <span class="s2">&#34;none&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">    <span class="p">}</span>
+</span></span><span class="line"><span class="cl">  <span class="o">:</span> <span class="p">{};</span>
+</span></span></code></pre></div><p>The <code>boxShadow: &quot;0 0 0 9999px ...&quot;</code> trick creates the &ldquo;cutout&rdquo; effect. The element itself is transparent, but the shadow extends 9999 pixels in every direction, creating the dark overlay with a hole in the middle. It&rsquo;s simpler than SVG clip-paths and handles the transition between steps cleanly — when the target element moves or the step changes, the CSS transition animates the spotlight&rsquo;s position and size.</p>
+<p>The spotlight tracks the target element via <code>requestAnimationFrame</code>:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-ts" data-lang="ts"><span class="line"><span class="cl"><span class="nx">useEffect</span><span class="p">(()</span> <span class="o">=&gt;</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">  <span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="nx">targetSelector</span><span class="p">)</span> <span class="k">return</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">  <span class="kr">const</span> <span class="nx">update</span> <span class="o">=</span> <span class="p">()</span> <span class="o">=&gt;</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">setTargetRect</span><span class="p">(</span><span class="nx">getTargetRect</span><span class="p">(</span><span class="nx">targetSelector</span><span class="p">));</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">rafRef</span><span class="p">.</span><span class="nx">current</span> <span class="o">=</span> <span class="nx">requestAnimationFrame</span><span class="p">(</span><span class="nx">update</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">  <span class="p">};</span>
+</span></span><span class="line"><span class="cl">  <span class="nx">update</span><span class="p">();</span>
+</span></span><span class="line"><span class="cl">  <span class="k">return</span> <span class="p">()</span> <span class="o">=&gt;</span> <span class="nx">cancelAnimationFrame</span><span class="p">(</span><span class="nx">rafRef</span><span class="p">.</span><span class="nx">current</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl"><span class="p">},</span> <span class="p">[</span><span class="nx">targetSelector</span><span class="p">]);</span>
+</span></span></code></pre></div><p>This ensures that if the user resizes the browser, scrolls, or the layout shifts, the spotlight stays locked on the target element.</p>
+<h2 id="the-demo-asset-strategy">The Demo Asset Strategy</h2>
+<p>The biggest UX insight in our onboarding was auto-loading demo files. When the tour tells the user &ldquo;upload a PDF,&rdquo; it also loads a sample <code>certificate.pdf</code> and <code>contacts.csv</code> from the <code>public/onboarding/</code> directory:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-ts" data-lang="ts"><span class="line"><span class="cl"><span class="c1">// useOnboardingLoader.ts
+</span></span></span><span class="line"><span class="cl"><span class="kr">const</span> <span class="nx">DEMO_PDF_URL</span> <span class="o">=</span> <span class="s2">&#34;/onboarding/certificate.pdf&#34;</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl"><span class="kr">const</span> <span class="nx">DEMO_EXCEL_URL</span> <span class="o">=</span> <span class="s2">&#34;/onboarding/contacts.csv&#34;</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="kr">export</span> <span class="kd">function</span> <span class="nx">useOnboardingLoader() {</span>
+</span></span><span class="line"><span class="cl">  <span class="kr">const</span> <span class="nx">loadDemoPdf</span> <span class="o">=</span> <span class="nx">useCallback</span><span class="p">(</span><span class="kr">async</span> <span class="p">()</span> <span class="o">=&gt;</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="kr">const</span> <span class="nx">response</span> <span class="o">=</span> <span class="k">await</span> <span class="nx">fetch</span><span class="p">(</span><span class="nx">DEMO_PDF_URL</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">    <span class="kr">const</span> <span class="nx">buffer</span> <span class="o">=</span> <span class="k">await</span> <span class="nx">response</span><span class="p">.</span><span class="nx">arrayBuffer</span><span class="p">();</span>
+</span></span><span class="line"><span class="cl">    <span class="k">return</span> <span class="p">{</span> <span class="nx">fileName</span><span class="o">:</span> <span class="s2">&#34;certificate.pdf&#34;</span><span class="p">,</span> <span class="nx">buffer</span> <span class="p">};</span>
+</span></span><span class="line"><span class="cl">  <span class="p">},</span> <span class="p">[]);</span>
+</span></span><span class="line"><span class="cl">  <span class="c1">// ... same for Excel
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></div><p>This is what turns a passive tour (&ldquo;click here, then click there&rdquo;) into an active one (&ldquo;watch the editor populate with real data&rdquo;). The user sees the PDF render, sees the spreadsheet columns appear in the sidebar, and understands <em>what the product does</em> — not just <em>where to click</em>.</p>
+<p>Without demo assets, the tour would be saying &ldquo;upload a PDF&rdquo; to a user who doesn&rsquo;t have a PDF handy. They&rsquo;d skip the tour, and you&rsquo;ve lost your one chance to make a first impression.</p>
+<h2 id="the-lesson">The Lesson</h2>
+<p>Onboarding isn&rsquo;t about making your product feel polished. It&rsquo;s about <strong>reducing the time between sign-up and the first moment of value</strong>.</p>
+<p>Before the tour, a new user had to: find their own PDF, find their own spreadsheet, figure out which goes first, discover the drag-and-drop mechanic, and find the merge button. That&rsquo;s five cognitive jumps, any one of which could be the jump where they leave.</p>
+<p>After the tour: the user watches the product work with demo data in about sixty seconds. They understand the workflow. They&rsquo;ve seen the canvas, the sidebar, and the merge button in context. When they bring their own files, they already know where everything goes.</p>
+<p>If you&rsquo;re building a product where the user needs to understand a multi-step workflow before they can get value — and most products are like this — the onboarding tour isn&rsquo;t a feature you add later. It&rsquo;s the first feature you ship.</p>
+
+</div>
+
+      </div>
+      <footer class="container" style="padding-bottom: 2rem; margin-top: 1rem; font-size: 0.8rem; color: #9a9a9a; font-family: 'PT Serif', Georgia, 'Times New Roman', serif;">
+        <hr style="margin-bottom: 1rem; border: 0; border-top: 1px solid #eee;">
+        <p>Back to <a href="https://mergram.com" target="_blank" style="color: #313131; text-decoration: underline;">Mergram</a> &mdash; PDF Mail Merge, Made Simple.</p>
+      </footer>
+    </div>
+
+    <label for="sidebar-checkbox" class="sidebar-toggle"></label>
+
+    
+    <script src="https://mergrams.github.io/assets/js/mermaid.min.js"></script>
+    <script>
+      mermaid.initialize({ startOnLoad: true });
+    </script>
+    
+  </body>
+</html>
+

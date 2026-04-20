@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en-us">
+
+  <head>
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+
+  <link rel="icon" type="image/svg+xml" href="https://mergrams.github.io/assets/favicon.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+
+  <title>
+    
+      Why Building a PDF Editor Is Harder Than You Think &middot; Mergrams
+    
+  </title>
+
+  
+  <link rel="stylesheet" href="https://mergrams.github.io/css/poole.css">
+  <link rel="stylesheet" href="https://mergrams.github.io/css/syntax.css">
+  <link rel="stylesheet" href="https://mergrams.github.io/css/lanyon.css">
+
+  
+  <link rel="apple-touch-icon-precomposed" sizes="144x144" href="https://mergrams.github.io/assets/apple-touch-icon-144-precomposed.png">
+  <link rel="shortcut icon" href="https://mergrams.github.io/assets/favicon.ico">
+
+  
+  <link rel="alternate" type="application/rss+xml" title="RSS" href="https://mergrams.github.io/atom.xml">
+</head>
+
+
+  <body>
+
+    <input type="checkbox" class="sidebar-checkbox" id="sidebar-checkbox">
+
+
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-item">
+    <p>
+      Mergram engineering blog
+    </p>
+  </div>
+
+  <nav class="sidebar-nav">
+    <a class="sidebar-nav-item " href="https://mergrams.github.io/">Home</a>
+    <a class="sidebar-nav-item " href="https://mergrams.github.io/post">Posts</a><a class="sidebar-nav-item" href="https://mergrams.github.io/categories/" title="Categories">Categories</a>
+    <a class="sidebar-nav-item " href="https://mergrams.github.io/about/">About</a>
+      </nav>
+
+  <div class="sidebar-item">
+    <p>Looking for a simple PDF mail merge?</p>
+    <p><a href="https://mergram.com" target="_blank">Visit Mergram &rarr;</a></p>
+  </div>
+
+  <div class="sidebar-item">
+    <p>&copy; Mergram. All rights reserved.</p>
+  </div>
+</div>
+
+
+    
+    <div class="wrap">
+      <div class="masthead">
+        <div class="container">
+          <h3 class="masthead-title">
+            <a href="https://mergrams.github.io/" title="Home">Mergrams</a>
+            <small>A programming blog</small>
+          </h3>
+        </div>
+      </div>
+
+      <div class="container content">
+
+
+<div class="post">
+  <h1 class="post-title">Why Building a PDF Editor Is Harder Than You Think</h1>
+  <span class="post-date">Apr 20 2026</span>
+  <p>A PDF is not a document. It&rsquo;s a rendering instruction set. Every glyph, every line, every image is placed at an absolute (x, y) coordinate on a fixed-size canvas measured in points — not pixels. There is no reflow. There is no &ldquo;just add text here.&rdquo; There is a coordinate system, a font embedding protocol, and 1,300 pages of ISO specification.</p>
+<p>We learned this the hard way while building Mergram&rsquo;s editor. Here are the problems that surprised us.</p>
+<h2 id="two-libraries-two-jobs">Two Libraries, Two Jobs</h2>
+<p>There is no single JavaScript library that can both <em>display</em> and <em>generate</em> PDFs well. So we use two: <code>pdfjs-dist</code> (Mozilla&rsquo;s PDF.js) for viewing, and <code>pdf-lib</code> for generation.</p>
+<div class="mermaid">
+  graph TD
+    A[PDF file uploaded] --> B["pdfjs-dist — renders pages to canvas"]
+    A --> C["pdf-lib — modifies structure, embeds fonts, writes fields"]
+    B --> D["User sees the PDF"]
+    C --> E["User downloads the PDF"]
+    D -.->|separate concerns| E
+</div>
+
+<p>This split sounds clean until you realize they don&rsquo;t agree on anything. PDF.js renders pages at screen resolution using pixel coordinates. pdf-lib operates in PDF points (1/72 of an inch). The user places a field on the canvas at pixel (400, 300), and you need to convert that to a point position on the correct PDF page — accounting for scale, viewport offset, and the fact that PDF&rsquo;s y-axis goes upward while the browser&rsquo;s goes downward.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-ts" data-lang="ts"><span class="line"><span class="cl"><span class="c1">// Pixel on canvas → point position in PDF
+</span></span></span><span class="line"><span class="cl"><span class="c1">// Two different coordinate systems, one conversion
+</span></span></span><span class="line"><span class="cl"><span class="kr">const</span> <span class="nx">pdfX</span> <span class="o">=</span> <span class="nx">canvasX</span> <span class="o">/</span> <span class="nx">scale</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl"><span class="kr">const</span> <span class="nx">pdfY</span> <span class="o">=</span> <span class="nx">pageHeight</span> <span class="o">-</span> <span class="nx">canvasY</span> <span class="o">/</span> <span class="nx">scale</span><span class="p">;</span>
+</span></span></code></pre></div><p>That <code>pageHeight - y</code> inversion is where the first bugs live. Forget it once, and every field lands in the wrong position — mirrored vertically.</p>
+<h2 id="the-coordinate-system-hall-of-mirrors">The Coordinate System Hall of Mirrors</h2>
+<p>A user drags a field onto the canvas. The Fabric.js overlay fires an event with <code>{ left: 342, top: 187 }</code>. Those are CSS pixels relative to the canvas element. But the PDF page underneath was rendered at a specific zoom level, and the PDF&rsquo;s internal coordinate system starts at the bottom-left corner.</p>
+<div class="mermaid">
+  graph TD
+    A["Canvas (CSS pixels, top-left origin)"] -->|"divide by scale"| B["Viewport coordinates"]
+    B -->|"invert Y axis"| C["PDF points (bottom-left origin)"]
+    C -->|"embed in page"| D["pdf-lib draws text"]
+</div>
+
+<p>Three coordinate spaces, two transformations, and any rounding error compounds. A field that&rsquo;s 1 pixel off at 100% zoom is 2 pixels off at 200% zoom. We ended up with a shared conversion utility that every rendering path goes through — no ad-hoc math in component code.</p>
+<p>The Fabric.js canvas overlay sits on top of a PDF.js rendered page. The overlay shows draggable field boxes. The PDF underneath is a static image. They need to stay perfectly aligned across zoom changes, window resizes, and page scrolls. If the overlay shifts by even a few pixels, the user places a field that renders in the wrong spot on the generated PDF.</p>
+<h2 id="unicode-the-silent-killer">Unicode: The Silent Killer</h2>
+<p>PDF has 14 standard fonts (Helvetica, Times Roman, Courier, etc.). These only cover the WinAnsi character set — basically Western European text. The moment someone types a Vietnamese name like &ldquo;Nguyễn Thị Minh Khai&rdquo; or a Greek address, the standard fonts throw an error. The character &ldquo;ễ&rdquo; doesn&rsquo;t exist in WinAnsi.</p>
+<p>The fix is to embed a Unicode-capable font (we use Inter) and tell pdf-lib to regenerate all form field appearances using that font instead of the default:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-ts" data-lang="ts"><span class="line"><span class="cl"><span class="c1">// Detect non-ASCII and switch to Unicode font
+</span></span></span><span class="line"><span class="cl"><span class="k">if</span> <span class="p">(</span><span class="nx">hasNonAsciiChars</span><span class="p">(</span><span class="nx">value</span><span class="p">))</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">  <span class="nx">needsUnicodeFont</span> <span class="o">=</span> <span class="kc">true</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1">// Later: embed Inter and regenerate appearances
+</span></span></span><span class="line"><span class="cl"><span class="k">if</span> <span class="p">(</span><span class="nx">needsUnicodeFont</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">  <span class="kr">const</span> <span class="nx">unicodeFont</span> <span class="o">=</span> <span class="k">await</span> <span class="nx">embedUnicodeFont</span><span class="p">(</span><span class="nx">pdfDoc</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">  <span class="nx">pdfForm</span><span class="p">.</span><span class="nx">updateFieldAppearances</span><span class="p">(</span><span class="nx">unicodeFont</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></div><p>This sounds simple. The catch is that <code>updateFieldAppearances</code> regenerates <em>every</em> field&rsquo;s visual appearance, not just the ones with Unicode. If the PDF had carefully styled form fields with custom fonts and sizes, they all get overwritten with your Unicode font. You trade correct encoding for lost formatting. There is no middle ground in pdf-lib&rsquo;s API.</p>
+<h2 id="broken-pdfs-are-the-norm">Broken PDFs Are the Norm</h2>
+<p>You&rsquo;d be amazed how many PDF generators produce broken files. The form fields look fine in Adobe Reader, but internally their appearance streams point to objects that don&rsquo;t exist in the file. These are called dangling references, and they crash pdf-lib when it tries to save:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-ts" data-lang="ts"><span class="line"><span class="cl"><span class="c1">// The widget says &#34;render me using object #47&#34;
+</span></span></span><span class="line"><span class="cl"><span class="c1">// But object #47 doesn&#39;t exist in the PDF
+</span></span></span><span class="line"><span class="cl"><span class="kr">const</span> <span class="nx">AP</span> <span class="o">=</span> <span class="nx">widget</span><span class="p">.</span><span class="nx">AP</span><span class="p">();</span>
+</span></span><span class="line"><span class="cl"><span class="kr">const</span> <span class="nx">normalEntry</span> <span class="o">=</span> <span class="nx">AP</span><span class="p">.</span><span class="kr">get</span><span class="p">(</span><span class="nx">PDFName</span><span class="p">.</span><span class="k">of</span><span class="p">(</span><span class="s2">&#34;N&#34;</span><span class="p">));</span>
+</span></span><span class="line"><span class="cl"><span class="k">if</span> <span class="p">(</span><span class="nx">normalEntry</span> <span class="o">===</span> <span class="kc">undefined</span><span class="p">)</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">  <span class="c1">// Dangling reference — remove the broken appearance
+</span></span></span><span class="line"><span class="cl">  <span class="nx">widget</span><span class="p">.</span><span class="nx">dict</span><span class="p">.</span><span class="k">delete</span><span class="p">(</span><span class="nx">PDFName</span><span class="p">.</span><span class="k">of</span><span class="p">(</span><span class="s2">&#34;AP&#34;</span><span class="p">));</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></div><p>Adobe Reader handles this gracefully by regenerating the appearance. pdf-lib does not — it throws <code>UnexpectedObjectTypeError</code> and the merge fails. So we built a repair function that walks every form field&rsquo;s widget annotations, checks if their appearance references resolve, and strips the broken ones before pdf-lib touches the file.</p>
+<p>This repair step runs on every upload. Most users never know their PDF was broken. That&rsquo;s the goal.</p>
+<h2 id="the-same-code-two-runtimes">The Same Code, Two Runtimes</h2>
+<p>Single-row previews run in the browser for instant feedback. Bulk merges run on the server via a background worker. Both need the same rendering logic — same field placement, same font handling, same QR code embedding, same barcode generation. If they diverge, the preview doesn&rsquo;t match the output.</p>
+<div class="mermaid">
+  graph TD
+    A["render-core.ts (shared package)"] --> B["Browser: render.ts"]
+    A --> C["Server: render.service.ts"]
+    B --> D["Single-row preview (instant)"]
+    C --> E["Bulk merge (worker queue)"]
+</div>
+
+<p>The shared <code>render-core</code> package handles the logic that&rsquo;s runtime-agnostic: field positioning, text wrapping, form field mapping, coordinate conversion. The browser and server each provide a &ldquo;driver&rdquo; — an adapter that resolves fonts, embeds images, and handles platform-specific APIs. The browser driver fetches fonts over HTTP. The server driver reads them from S3.</p>
+<p>The tricky part is font embedding. pdf-lib needs the raw font bytes to embed them. In the browser, we fetch custom fonts from the API. On the server, we download them from storage. Both paths must produce identical PDF output. If the font file differs by even one byte, the PDFs diverge. We cache fonts per merge job on the server side to avoid re-downloading the same font for every row.</p>
+<h2 id="the-canvas-overlay-that-isnt-a-pdf">The Canvas Overlay That Isn&rsquo;t a PDF</h2>
+<p>Fabric.js gives us a nice drag-and-drop canvas. But Fabric.js knows nothing about PDFs. It works in CSS pixels. It doesn&rsquo;t understand page boundaries, PDF boxes, or the difference between &ldquo;this field is on page 1&rdquo; and &ldquo;this field is on page 2.&rdquo;</p>
+<p>When the user scrolls to page 3 and places a field, we have to track which page is currently visible and tag the field with that page index. When they zoom, the canvas objects scale, but the underlying PDF coordinates don&rsquo;t. When they switch pages, we serialize the current page&rsquo;s fields, clear the canvas, load the new page&rsquo;s PDF image, and deserialize the new page&rsquo;s fields.</p>
+<p>Every field stores its position in PDF points, not canvas pixels. The canvas is just a visualization layer. When the user moves a field, we convert back to PDF coordinates immediately. Nothing is stored in pixel space.</p>
+<h2 id="the-lesson">The Lesson</h2>
+<p>PDF was designed for print — a final output format where the document looks the same on every device. Building an interactive editor on top of it means fighting the format&rsquo;s assumptions at every turn. There is no text reflow. There is no layout engine. There are absolute coordinates, embedded fonts, and the hope that the PDF you received was generated correctly.</p>
+<p>The hard parts aren&rsquo;t the obvious ones. Everyone expects rendering to be tricky. The surprises are the coordinate system inversions, the Unicode font fallbacks, the dangling references in &ldquo;working&rdquo; PDFs, and the fact that your browser code and server code must produce bit-identical output despite running on different runtimes with different font loading mechanisms.</p>
+<p>We handle this by keeping the rendering logic in a shared package with platform-specific drivers, running a repair step on every upload, and treating the canvas overlay as a thin visualization layer over PDF coordinates. The user sees a drag-and-drop editor. Underneath, it&rsquo;s coordinate math, font embedding, and defensive parsing — every single time.</p>
+
+</div>
+
+      </div>
+      <footer class="container" style="padding-bottom: 2rem; margin-top: 1rem; font-size: 0.8rem; color: #9a9a9a; font-family: 'PT Serif', Georgia, 'Times New Roman', serif;">
+        <hr style="margin-bottom: 1rem; border: 0; border-top: 1px solid #eee;">
+        <p>Back to <a href="https://mergram.com" target="_blank" style="color: #313131; text-decoration: underline;">Mergram</a> &mdash; PDF Mail Merge, Made Simple.</p>
+      </footer>
+    </div>
+
+    <label for="sidebar-checkbox" class="sidebar-toggle"></label>
+
+    
+    <script src="https://mergrams.github.io/assets/js/mermaid.min.js"></script>
+    <script>
+      mermaid.initialize({ startOnLoad: true });
+    </script>
+    
+  </body>
+</html>
+

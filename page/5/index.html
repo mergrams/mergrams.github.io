@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en-us">
+
+  <head>
+	<meta name="generator" content="Hugo 0.159.1">
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+
+  <link rel="icon" type="image/svg+xml" href="https://mergrams.github.io/assets/favicon.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+
+  <title>
+    
+      Mergrams &middot; A programming blog
+    
+  </title>
+
+  
+  <link rel="stylesheet" href="https://mergrams.github.io/css/poole.css">
+  <link rel="stylesheet" href="https://mergrams.github.io/css/syntax.css">
+  <link rel="stylesheet" href="https://mergrams.github.io/css/lanyon.css">
+
+  
+  <link rel="apple-touch-icon-precomposed" sizes="144x144" href="https://mergrams.github.io/assets/apple-touch-icon-144-precomposed.png">
+  <link rel="shortcut icon" href="https://mergrams.github.io/assets/favicon.ico">
+
+  
+  <link rel="alternate" type="application/rss+xml" title="RSS" href="https://mergrams.github.io/atom.xml">
+</head>
+
+
+  <body>
+
+    <input type="checkbox" class="sidebar-checkbox" id="sidebar-checkbox">
+
+
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-item">
+    <p>
+      Mergram engineering blog
+    </p>
+  </div>
+
+  <nav class="sidebar-nav">
+    <a class="sidebar-nav-item  active " href="https://mergrams.github.io/">Home</a>
+    <a class="sidebar-nav-item " href="https://mergrams.github.io/post">Posts</a><a class="sidebar-nav-item" href="https://mergrams.github.io/categories/" title="Categories">Categories</a>
+    <a class="sidebar-nav-item " href="https://mergrams.github.io/about/">About</a>
+      </nav>
+
+  <div class="sidebar-item">
+    <p>Looking for a simple PDF mail merge?</p>
+    <p><a href="https://mergram.com" target="_blank">Visit Mergram &rarr;</a></p>
+  </div>
+
+  <div class="sidebar-item">
+    <p>&copy; Mergram. All rights reserved.</p>
+  </div>
+</div>
+
+
+    
+    <div class="wrap">
+      <div class="masthead">
+        <div class="container">
+          <h3 class="masthead-title">
+            <a href="https://mergrams.github.io/" title="Home">Mergrams</a>
+            <small>A programming blog</small>
+          </h3>
+        </div>
+      </div>
+
+      <div class="container content">
+
+
+
+
+
+<div class="posts">
+  
+    <div class="post">
+        <h1 class="post-title"><a href="https://mergrams.github.io/three-foundations-that-make-vibe-coding-actually-work/">Three Foundations That Make Vibe Coding Actually Work</a></h1>
+        <span class="post-date">Mar 28 2026</span>
+        <p>&ldquo;Vibe coding&rdquo; — using AI agents to write production code — works great when you can describe what you want in plain English and get a working feature back. It falls apart when the agent doesn&rsquo;t understand your project&rsquo;s structure, generates a button that looks nothing like the rest of your app, or introduces a regression you can&rsquo;t catch because nothing is tested.</p>
+<p>We&rsquo;ve been building Mergram with AI-assisted development since the start. Here are three investments that made the difference between &ldquo;the agent keeps hallucinating&rdquo; and &ldquo;the agent ships usable code.&rdquo;</p>
+<h2 id="1-monorepo-for-context-understanding">1. Monorepo for Context Understanding</h2>
+<p>The single biggest multiplier for AI-assisted development is giving the agent access to your entire codebase — not fragments, not disconnected repos, but the full picture in one place.</p>
+<p>Mergram is a Turborepo monorepo with three packages: a React frontend, an Express backend, and a shared library. This isn&rsquo;t just a organizational preference — it&rsquo;s the infrastructure that makes cross-boundary code work.</p>
+<div class="mermaid">
+  graph TD
+    A[AI Agent] -->|reads full context| B[Turborepo Monorepo]
+    B --> C[apps/frontend]
+    B --> D[apps/backend]
+    B --> E[packages/shared]
+    C -->|imports| E
+    D -->|imports| E
+    E -->|shared types & logic| C
+    E -->|shared types & logic| D
+</div>
+
+<p>The shared package (<code>@mergram/shared</code>) is where the magic happens. When the AI needs to understand how PDF rendering works, it can see the same interface used by both the browser preview and the server-side bulk generator:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-ts" data-lang="ts"><span class="line"><span class="cl"><span class="c1">// packages/shared/lib/render-types.ts
+</span></span></span><span class="line"><span class="cl"><span class="kr">export</span> <span class="kr">interface</span> <span class="nx">RenderDriver</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">  <span class="nx">drawText</span><span class="p">(</span><span class="nx">page</span>: <span class="kt">RenderPage</span><span class="p">,</span> <span class="nx">field</span>: <span class="kt">FieldConfig</span><span class="p">)</span><span class="o">:</span> <span class="nx">Promise</span><span class="p">&lt;</span><span class="nt">void</span><span class="p">&gt;;</span>
+</span></span><span class="line"><span class="cl">  <span class="nx">drawQRCode</span><span class="p">(</span><span class="nx">page</span>: <span class="kt">RenderPage</span><span class="p">,</span> <span class="nx">field</span>: <span class="kt">FieldConfig</span><span class="p">)</span><span class="o">:</span> <span class="nx">Promise</span><span class="p">&lt;</span><span class="nt">void</span><span class="p">&gt;;</span>
+</span></span><span class="line"><span class="cl">  <span class="nx">drawBarcode</span><span class="p">(</span><span class="nx">page</span>: <span class="kt">RenderPage</span><span class="p">,</span> <span class="nx">field</span>: <span class="kt">FieldConfig</span><span class="p">)</span><span class="o">:</span> <span class="nx">Promise</span><span class="p">&lt;</span><span class="nt">void</span><span class="p">&gt;;</span>
+</span></span><span class="line"><span class="cl"><span class="p">}</span>
+</span></span></code></pre></div><p>The browser implementation uses Canvas and data URLs. The server implementation uses Buffers and native libraries. The AI can see both, understand the contract, and modify either side without breaking the other.</p>
+<p><strong>Without a monorepo</strong>: The agent gets one repo at a time. It can&rsquo;t see that <code>render-types.ts</code> defines the contract. It duplicates types. It guesses at the interface. You spend more time fixing the agent&rsquo;s assumptions than you would have spent writing the code.</p>
+<p><strong>With a monorepo</strong>: The agent traces the import from <code>apps/frontend/src/lib/render.ts</code> → <code>@mergram/shared/lib/render-core.ts</code> → <code>@mergram/shared/lib/render-types.ts</code>. It understands the full chain. It modifies the right file.</p>
+<h2 id="2-design-system-for-consistent-ai-output">2. Design System for Consistent AI Output</h2>
+<p>Here&rsquo;s what happens when you ask an AI to &ldquo;add a settings panel&rdquo; without a design system: you get Tailwind classes like <code>bg-blue-500 p-4 rounded border border-gray-300 text-sm font-medium hover:bg-blue-600</code> — a component that technically works but looks nothing like the rest of your application.</p>
+<p>Mergram has a design system built into Tailwind config with semantic tokens and a component library in <code>src/components/ui/</code>. The AI gets this context through <code>AGENTS.md</code>, and the difference is immediate.</p>
+<p>Instead of raw colors, the agent uses design tokens:</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-tsx" data-lang="tsx"><span class="line"><span class="cl"><span class="c1">// What the AI generates WITH a design system
+</span></span></span><span class="line"><span class="cl"><span class="p">&lt;</span><span class="nt">Button</span> <span class="na">variant</span><span class="o">=</span><span class="s">&#34;danger&#34;</span> <span class="na">size</span><span class="o">=</span><span class="s">&#34;sm&#34;</span> <span class="na">onClick</span><span class="o">=</span><span class="p">{</span><span class="nx">handleDelete</span><span class="p">}&gt;</span>
+</span></span><span class="line"><span class="cl">  <span class="nx">Delete</span> <span class="nx">Template</span>
+</span></span><span class="line"><span class="cl"><span class="p">&lt;/</span><span class="nt">Button</span><span class="p">&gt;</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="c1">// What you get WITHOUT one
+</span></span></span><span class="line"><span class="cl"><span class="p">&lt;</span><span class="nt">button</span> <span class="na">className</span><span class="o">=</span><span class="s">&#34;bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 text-xs&#34;</span><span class="p">&gt;</span>
+</span></span><span class="line"><span class="cl">  <span class="nx">Delete</span> <span class="nx">Template</span>
+</span></span><span class="line"><span class="cl"><span class="p">&lt;/</span><span class="nt">button</span><span class="p">&gt;</span>
+</span></span></code></pre></div><p>The design system provides three things the AI needs:</p>
+<ol>
+<li><strong>Design tokens</strong> — <code>primary-*</code>, <code>danger-*</code>, <code>success-*</code>, <code>surface</code>, <code>shadow-card</code>. The agent never guesses a hex code.</li>
+<li><strong>Component API</strong> — <code>variant</code> and <code>size</code> props with defined options. The agent follows the contract instead of inventing classes.</li>
+<li><strong>Utility functions</strong> — <code>cn()</code> for conditional class merging, so the agent doesn&rsquo;t write ternary template literals.</li>
+</ol>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-tsx" data-lang="tsx"><span class="line"><span class="cl"><span class="c1">// The agent uses cn() for conditional classes
+</span></span></span><span class="line"><span class="cl"><span class="p">&lt;</span><span class="nt">div</span> <span class="na">className</span><span class="o">=</span><span class="p">{</span><span class="nx">cn</span><span class="p">(</span>
+</span></span><span class="line"><span class="cl">  <span class="s2">&#34;rounded-lg border p-4&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">  <span class="nx">isActive</span> <span class="o">&amp;&amp;</span> <span class="s2">&#34;border-primary-500 bg-primary-50&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">  <span class="nx">hasError</span> <span class="o">&amp;&amp;</span> <span class="s2">&#34;border-danger-500&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">  <span class="nx">className</span>
+</span></span><span class="line"><span class="cl"><span class="p">)}&gt;</span>
+</span></span></code></pre></div><p>This isn&rsquo;t about aesthetics. It&rsquo;s about <strong>reducing the token budget</strong> the agent spends on styling decisions. Every class the agent doesn&rsquo;t have to guess is a token it can spend on actual logic.</p>
+<h2 id="3-test-coverage-for-confident-refactoring">3. Test Coverage for Confident Refactoring</h2>
+<p>This is the investment that took the longest to pay off, but the one that matters most now.</p>
+<p>When we started, Mergram had no tests. Every AI-generated feature was verified by manual testing. That worked for a two-person team moving fast. It became a liability when we started iterating on AI-generated code multiple times a day.</p>
+<p>The bugs were predictable:</p>
+<ul>
+<li>What happens when a user with 1 credit tries to merge a 2-row spreadsheet?</li>
+<li>What happens when the worker picks up a job but the PDF template was deleted mid-processing?</li>
+<li>What happens when two concurrent requests try to deduct credits from the same balance?</li>
+</ul>
+<p>We shipped every one of those. A test suite would have caught them before production.</p>
+<p>Today, Mergram runs Vitest on the frontend and Jest on the backend, with coverage thresholds enforced in CI. The test suite covers backend services, routes, middleware, and workers — as well as frontend components, hooks, and libraries. The shared package is tested from both sides.</p>
+<p>We started with business logic — <code>credit.service.ts</code>, <code>render.service.ts</code>, <code>job.service.ts</code> — because that&rsquo;s where regressions hurt most. But the UI is tested too, from editor hooks to tool components to auth flows.</p>
+<div class="highlight"><pre tabindex="0" class="chroma"><code class="language-ts" data-lang="ts"><span class="line"><span class="cl"><span class="c1">// The kind of test that pays for itself
+</span></span></span><span class="line"><span class="cl"><span class="nx">describe</span><span class="p">(</span><span class="s2">&#34;credit.service&#34;</span><span class="p">,</span> <span class="p">()</span> <span class="o">=&gt;</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">  <span class="nx">it</span><span class="p">(</span><span class="s2">&#34;rejects merge when balance is insufficient&#34;</span><span class="p">,</span> <span class="kr">async</span> <span class="p">()</span> <span class="o">=&gt;</span> <span class="p">{</span>
+</span></span><span class="line"><span class="cl">    <span class="kr">const</span> <span class="nx">result</span> <span class="o">=</span> <span class="k">await</span> <span class="nx">deductCredits</span><span class="p">({</span>
+</span></span><span class="line"><span class="cl">      <span class="nx">teamId</span><span class="o">:</span> <span class="s2">&#34;team-1&#34;</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">      <span class="nx">amount</span>: <span class="kt">10</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">      <span class="nx">currentBalance</span>: <span class="kt">3</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">    <span class="p">});</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">expect</span><span class="p">(</span><span class="nx">result</span><span class="p">.</span><span class="nx">success</span><span class="p">).</span><span class="nx">toBe</span><span class="p">(</span><span class="kc">false</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">    <span class="nx">expect</span><span class="p">(</span><span class="nx">result</span><span class="p">.</span><span class="nx">error</span><span class="p">).</span><span class="nx">toBe</span><span class="p">(</span><span class="s2">&#34;INSUFFICIENT_CREDITS&#34;</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">    <span class="c1">// Verify balance unchanged
+</span></span></span><span class="line"><span class="cl">    <span class="nx">expect</span><span class="p">(</span><span class="k">await</span> <span class="nx">getBalance</span><span class="p">(</span><span class="s2">&#34;team-1&#34;</span><span class="p">)).</span><span class="nx">toBe</span><span class="p">(</span><span class="mi">3</span><span class="p">);</span>
+</span></span><span class="line"><span class="cl">  <span class="p">});</span>
+</span></span><span class="line"><span class="cl"><span class="p">});</span>
+</span></span></code></pre></div><p>Tests are the difference between &ldquo;the agent can ship features&rdquo; and &ldquo;the agent can ship features and you can sleep at night.&rdquo; They&rsquo;re also what lets the agent refactor confidently — change the implementation, run the suite, and know immediately if something broke.</p>
+<h2 id="honorable-mention-agentsmd">Honorable Mention: AGENTS.md</h2>
+<p>One more thing worth calling out — the <code>AGENTS.md</code> file at the root of the repository. It&rsquo;s a document that tells AI agents everything they need to know about the project: architecture, key files, conventions, common pitfalls, and design system usage.</p>
+<p>This isn&rsquo;t a standard practice yet, but it should be. It&rsquo;s the difference between an agent that starts every session by exploring your codebase (burning tokens, making wrong assumptions) and one that already knows that <code>PdfEditor.tsx</code> is 820 lines and you use <code>pdfjs-dist</code> for viewing but <code>pdf-lib</code> for generating.</p>
+<h2 id="the-pattern">The Pattern</h2>
+<p>These three investments share a common theme: <strong>they reduce ambiguity</strong>. The monorepo reduces ambiguity about what exists. The design system reduces ambiguity about what things should look like. Tests reduce ambiguity about what &ldquo;working&rdquo; means.</p>
+<p>When ambiguity is low, AI agents produce code that fits. When ambiguity is high, they produce code that <em>compiles</em> — and you spend the rest of the day making it belong.</p>
+
+        
+          
+        
+    </div>
+  
+</div>
+
+<div class="pagination">
+  
+  <a class="pagination-item older" href="https://mergrams.github.io/page/6/">Older</a>
+  
+
+  
+  <a class="pagination-item newer" href="https://mergrams.github.io/page/4/">Newer</a>
+  
+</div>
+
+      </div>
+      <footer class="container" style="padding-bottom: 2rem; margin-top: 1rem; font-size: 0.8rem; color: #9a9a9a; font-family: 'PT Serif', Georgia, 'Times New Roman', serif;">
+        <hr style="margin-bottom: 1rem; border: 0; border-top: 1px solid #eee;">
+        <p>Back to <a href="https://mergram.com" target="_blank" style="color: #313131; text-decoration: underline;">Mergram</a> &mdash; PDF Mail Merge, Made Simple.</p>
+      </footer>
+    </div>
+
+    <label for="sidebar-checkbox" class="sidebar-toggle"></label>
+
+    
+    <script src="https://mergrams.github.io/assets/js/mermaid.min.js"></script>
+    <script>
+      mermaid.initialize({ startOnLoad: true });
+    </script>
+    
+  </body>
+</html>
+
